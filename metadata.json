@@ -1,6 +1,6 @@
 {
-  "name": "EduTech Web",
-  "description": "Education workflow management system for language institutes - Phase 5: Scheduling Workflow & Proposals",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "EduTech Academic Suite",
+  "description": "Comprehensive school management, automated timetable generation, syllabus tracking, attendance, and administrative dashboard.",
+  "request_frame_permissions": [],
+  "capabilities": []
 }

@@ -1,25 +1,21 @@
-import type {Metadata} from 'next';
-import './globals.css'; // Global styles
+import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'EduTech Web',
-  description: 'Education workflow management system for language institutes - Phase 5: Scheduling Workflow & Proposals',
-  openGraph: {
-    title: 'EduTech Web',
-    description: 'Education workflow management system for language institutes - Phase 5: Scheduling Workflow & Proposals',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'EduTech Web',
-    description: 'Education workflow management system for language institutes - Phase 5: Scheduling Workflow & Proposals',
-  },
+  title: "EduTech Academic Suite",
+  description: "Comprehensive school management, automated timetable generation, syllabus tracking, attendance, and administrative dashboard.",
 };
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en">
-      <body suppressHydrationWarning>{children}</body>
+    <html lang="en" className="dark">
+      <body className="bg-slate-950 text-slate-100 antialiased min-h-screen">
+        {children}
+      </body>
     </html>
   );
 }
