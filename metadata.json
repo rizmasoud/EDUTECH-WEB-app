@@ -1,0 +1,6 @@
+{
+  "name": "EduTech Web",
+  "description": "Education workflow management system for language institutes - Phase 5: Scheduling Workflow & Proposals",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

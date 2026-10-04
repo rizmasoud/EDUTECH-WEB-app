@@ -1,0 +1,6 @@
+{
+  "name": "@edutech/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared configurations for EduTech Web"
+}

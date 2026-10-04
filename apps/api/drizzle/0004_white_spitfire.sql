@@ -1,0 +1,2 @@
+ALTER TABLE "classes" DROP CONSTRAINT "classes_capacity_check";--> statement-breakpoint
+ALTER TABLE "classes" ADD CONSTRAINT "classes_capacity_check" CHECK ("classes"."capacity" > 0 AND "classes"."capacity" <= 15);

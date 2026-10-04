@@ -1,0 +1,66 @@
+name: CI - Production Readiness Verification
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: edutech_user
+          POSTGRES_PASSWORD: edutech_password
+          POSTGRES_DB: edutech_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Build Shared Package
+        run: pnpm --filter @edutech/shared build
+
+      - name: Build NestJS API Backend
+        run: pnpm --filter @edutech/api build
+
+      - name: Build Web Application
+        run: pnpm build
+        env:
+          DATABASE_URL: postgresql://edutech_user:edutech_password@localhost:5432/edutech_db
+          NODE_ENV: test
+          API_PORT: 4000
+
+      - name: Run Tests
+        run: pnpm test
+        env:
+          DATABASE_URL: postgresql://edutech_user:edutech_password@localhost:5432/edutech_db
+          NODE_ENV: test
+          API_PORT: 4000

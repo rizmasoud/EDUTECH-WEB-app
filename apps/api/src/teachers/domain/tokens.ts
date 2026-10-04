@@ -1,0 +1,1 @@
+export const TEACHER_REPOSITORY = Symbol('TEACHER_REPOSITORY');
