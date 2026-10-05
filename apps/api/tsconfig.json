@@ -15,7 +15,11 @@
     "skipLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@edutech/shared": ["../../packages/shared/src/index.ts"],
+      "@edutech/shared/*": ["../../packages/shared/src/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": [
