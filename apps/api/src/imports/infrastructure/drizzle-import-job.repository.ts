@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, count, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { importJobs, importResults } from '../../infrastructure/database/schema/imports.schema';
 import { ImportJob } from '../domain/entities/import-job.entity';
@@ -41,7 +42,7 @@ export class DrizzleImportJobRepository implements IImportJobRepository {
   }
 
   async findAll(filter?: FindImportJobsFilter): Promise<{ items: ImportJob[]; total: number }> {
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (filter?.type) {
       conditions.push(eq(importJobs.type, filter.type));

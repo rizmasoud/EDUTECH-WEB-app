@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, asc, and, count } from 'drizzle-orm';
+import { eq, asc, and, count, type SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { importResults } from '../../infrastructure/database/schema/imports.schema';
 import { ImportResult } from '../domain/entities/import-result.entity';
@@ -49,7 +49,7 @@ export class DrizzleImportResultRepository implements IImportResultRepository {
     jobId: string,
     filter?: FindImportResultsFilter,
   ): Promise<{ items: ImportResult[]; total: number }> {
-    const conditions = [eq(importResults.importJobId, jobId)];
+    const conditions: SQL[] = [eq(importResults.importJobId, jobId)];
 
     if (filter?.status) {
       conditions.push(eq(importResults.status, filter.status));

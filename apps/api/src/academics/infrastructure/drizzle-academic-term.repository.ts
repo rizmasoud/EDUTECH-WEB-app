@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, asc, ilike, and, sql, count } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { academicTerms } from '../../infrastructure/database/schema/academics.schema';
 import { AcademicTerm } from '../domain/entities/academic-term.entity';
@@ -39,7 +40,7 @@ export class DrizzleAcademicTermRepository implements IAcademicTermRepository {
   }
 
   async findAll(filter?: FindTermsFilter): Promise<{ items: AcademicTerm[]; total: number }> {
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (filter?.status) {
       conditions.push(eq(academicTerms.status, filter.status));
@@ -121,7 +122,7 @@ export class DrizzleAcademicTermRepository implements IAcademicTermRepository {
   }
 
   async findConflictingActiveTerm(excludeId?: string): Promise<AcademicTerm | null> {
-    const conditions = [eq(academicTerms.status, 'ACTIVE')];
+    const conditions: SQL[] = [eq(academicTerms.status, 'ACTIVE')];
     if (excludeId) {
       conditions.push(sql`${academicTerms.id} != ${excludeId}`);
     }

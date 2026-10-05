@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, count } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { enrollments } from '../../infrastructure/database/schema/classes.schema';
 import { Enrollment } from '../domain/entities/enrollment.entity';
@@ -53,7 +54,7 @@ export class DrizzleEnrollmentRepository implements IEnrollmentRepository {
     classId: string,
     filter?: FindEnrollmentsFilter,
   ): Promise<{ items: Enrollment[]; total: number }> {
-    const conditions: any[] = [eq(enrollments.classId, classId)];
+    const conditions: SQL[] = [eq(enrollments.classId, classId)];
 
     if (filter?.status) {
       conditions.push(eq(enrollments.status, filter.status));

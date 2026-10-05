@@ -6,6 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { eq, and, gt, asc, desc } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import { promotions, exams, examResults } from '../../../infrastructure/database/schema/education.schema';
@@ -381,7 +382,7 @@ export class PromotionService {
       .leftJoin(toBooks, eq(promotions.toBookId, toBooks.id))
       .innerJoin(examResults, eq(promotions.examResultId, examResults.id));
 
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
     if (filter.studentId) {
       conditions.push(eq(promotions.studentId, filter.studentId));
     }

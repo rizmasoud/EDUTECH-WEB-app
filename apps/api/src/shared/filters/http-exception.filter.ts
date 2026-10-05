@@ -45,7 +45,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (env === 'production') {
         message = 'An unexpected error occurred.';
       } else {
-        message = exception.message;
+        const query = (exception as any).query;
+        message = query ? `Failed query: ${query}` : exception.message;
       }
     } else {
       console.error('Unhandled unknown exception:', exception);

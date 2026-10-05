@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, count, not } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { classes, enrollments } from '../../infrastructure/database/schema/classes.schema';
 import { academicTerms, books, bookParts, bookSegments } from '../../infrastructure/database/schema/academics.schema';
@@ -46,7 +47,7 @@ export class DrizzleClassRepository implements IClassRepository {
   }
 
   async findAll(filter?: FindClassesFilter): Promise<{ items: Class[]; total: number }> {
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (filter?.academicTermId) {
       conditions.push(eq(classes.academicTermId, filter.academicTermId));

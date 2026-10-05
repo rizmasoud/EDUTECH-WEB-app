@@ -356,9 +356,8 @@ describe('Phase 12: Audit and Security Hardening Integration Tests', () => {
           });
         },
         (err: any) => {
-          const errMsg = err?.message || '';
-          const causeMsg = err?.cause?.message || String(err?.cause || '');
-          return errMsg.includes('Failed query') || causeMsg.includes('unique') || causeMsg.includes('duplicate');
+          const msg = `${err?.message || ''} ${err?.cause?.message || ''} ${String(err?.cause || '')}`;
+          return msg.includes('unique') || msg.includes('duplicate') || msg.includes('Failed query');
         },
         'Should reject duplicate teacher/term pair with UNIQUE constraint violation',
       );

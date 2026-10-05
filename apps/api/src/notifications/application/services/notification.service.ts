@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import { notifications } from '../../../infrastructure/database/schema/system.schema';
 import type {
@@ -105,7 +105,7 @@ export class NotificationService {
     user: AuthUser,
     query: QueryNotificationsDto = {},
   ): Promise<NotificationListResponseDto> {
-    const conditions = [eq(notifications.recipientAccountId, user.id)];
+    const conditions: SQL[] = [eq(notifications.recipientAccountId, user.id)];
 
     if (query.isRead !== undefined) {
       conditions.push(eq(notifications.isRead, query.isRead));

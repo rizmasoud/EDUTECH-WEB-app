@@ -7,6 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { eq, and, ne, desc, asc, inArray } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import {
   payrolls,
@@ -747,7 +748,7 @@ export class PayrollService {
   async findAll(filter: QueryPayrollsDto, user: AuthUser): Promise<PayrollDto[]> {
     const isSupervisor = user.roles.includes('SUPERVISOR');
 
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (!isSupervisor) {
       if (!user.teacherId) {

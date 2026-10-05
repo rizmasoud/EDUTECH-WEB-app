@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, ilike, count, or } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { students } from '../../infrastructure/database/schema/students.schema';
 import { Student } from '../domain/entities/student.entity';
@@ -40,20 +41,21 @@ export class DrizzleStudentRepository implements IStudentRepository {
   }
 
   async findAll(filter?: FindStudentsFilter): Promise<{ items: Student[]; total: number }> {
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (filter?.isActive !== undefined) {
       conditions.push(eq(students.isActive, filter.isActive));
     }
     if (filter?.search) {
       const searchPattern = `%${filter.search}%`;
-      conditions.push(
-        or(
-          ilike(students.firstName, searchPattern),
-          ilike(students.lastName, searchPattern),
-          ilike(students.shahvarCode, searchPattern),
-        ),
+      const searchCondition = or(
+        ilike(students.firstName, searchPattern),
+        ilike(students.lastName, searchPattern),
+        ilike(students.shahvarCode, searchPattern),
       );
+      if (searchCondition) {
+        conditions.push(searchCondition);
+      }
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

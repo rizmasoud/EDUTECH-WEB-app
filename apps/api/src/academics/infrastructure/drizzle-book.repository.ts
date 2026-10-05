@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { eq, asc, ilike, and, count, gt } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import {
   books,
@@ -71,7 +72,7 @@ export class DrizzleBookRepository implements IBookRepository {
   }
 
   async findAllBooks(filter?: FindBooksFilter): Promise<{ items: Book[]; total: number }> {
-    const conditions: any[] = [];
+    const conditions: SQL[] = [];
 
     if (filter?.isActive !== undefined) {
       conditions.push(eq(books.isActive, filter.isActive));
