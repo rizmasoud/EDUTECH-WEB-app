@@ -7,6 +7,22 @@ import { getPGliteDatabase } from './pglite-bootstrap';
 export const DRIZZLE_DB = Symbol('DRIZZLE_DB');
 export type DrizzleDb = PostgresJsDatabase<typeof schema> | any;
 
+let postgresClient: postgres.Sql | null = null;
+
+export async function closeDatabaseConnection(): Promise<void> {
+  const logger = new Logger('DrizzleProvider');
+  if (postgresClient) {
+    logger.log('Closing PostgreSQL database connection pool...');
+    try {
+      await postgresClient.end({ timeout: 5 });
+    } catch (err: any) {
+      logger.warn(`Error while closing PostgreSQL connection pool: ${err.message}`);
+    } finally {
+      postgresClient = null;
+    }
+  }
+}
+
 export const drizzleProvider: Provider = {
   provide: DRIZZLE_DB,
   useFactory: async (): Promise<DrizzleDb> => {
@@ -15,7 +31,7 @@ export const drizzleProvider: Provider = {
     }
 
     const logger = new Logger('DrizzleProvider');
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV?.toLowerCase().trim() === 'production';
     const connectionString = process.env.DATABASE_URL;
 
     if (isProduction) {
@@ -44,6 +60,7 @@ export const drizzleProvider: Provider = {
 
       // Test connection
       await client`SELECT 1`;
+      postgresClient = client;
       return drizzle(client, { schema });
     } catch (err: any) {
       const maskedErrorMsg = err.message ? err.message.replace(/:([^@]+)@/, ':***@') : String(err);

@@ -8,6 +8,9 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
+  // Enable graceful shutdown hooks for SIGTERM / SIGINT signal handling
+  app.enableShutdownHooks();
+
   // Set global API prefix matching Docs/api/api-specification.md
   app.setGlobalPrefix('api/v1', {
     exclude: ['health'],
