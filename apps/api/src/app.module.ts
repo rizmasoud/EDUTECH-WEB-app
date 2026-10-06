@@ -18,7 +18,6 @@ import { SupportModule } from './support/support.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { ApiRateLimiterGuard } from './shared/guards/api-rate-limiter.guard';
-import { CatchAllController } from './shared/controllers/catch-all.controller';
 
 @Module({
   imports: [
@@ -42,7 +41,7 @@ import { CatchAllController } from './shared/controllers/catch-all.controller';
     NotificationsModule,
     PayrollModule,
   ],
-  controllers: [CatchAllController],
+  controllers: [],
   providers: [
     {
       provide: APP_GUARD,

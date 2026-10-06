@@ -27,6 +27,48 @@ export interface AcademicTerm {
   startDate: string;
   endDate: string;
   status: 'PLANNED' | 'ACTIVE' | 'CLOSED';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BookItem {
+  id: string;
+  name: string;
+  level: string;
+  sequenceOrder: number;
+  sessionCount: number;
+  isTerminal: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BookPartItem {
+  id: string;
+  bookId: string;
+  name: string;
+  sequenceOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BookSegmentItem {
+  id: string;
+  bookPartId: string;
+  name: string;
+  sequenceOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface StudentItem {
+  id: string;
+  firstName: string;
+  lastName: string;
+  shahvarCode: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Teacher {
@@ -36,6 +78,20 @@ export interface Teacher {
   lastName: string;
   baseRate?: string;
   isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TeacherSkillItem {
+  id: string;
+  teacherId: string;
+  bookId: string;
+  createdAt?: string;
+  book?: {
+    id: string;
+    name: string;
+    level: string;
+  };
 }
 
 export interface ClassItem {
@@ -55,10 +111,38 @@ export interface ClassItem {
     name: string;
     level: string;
   };
+  bookSegment?: {
+    id: string;
+    name: string;
+  };
   teacher?: {
     id: string;
     firstName: string;
     lastName: string;
+  };
+  academicTerm?: {
+    id: string;
+    name: string;
+    status: string;
+  };
+}
+
+export interface EnrollmentItem {
+  id: string;
+  classId: string;
+  studentId: string;
+  status: 'ACTIVE' | 'COMPLETED' | 'WITHDRAWN';
+  joinedAt: string;
+  leftAt: string | null;
+  student?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    shahvarCode?: string | null;
+  };
+  class?: {
+    id: string;
+    className: string;
   };
 }
 
@@ -173,23 +257,212 @@ class ApiClient {
   }
 
   // Academic Terms
-  async getAcademicTerms(): Promise<AcademicTerm[]> {
-    const res = await this.request<any>('/academic-terms?pageSize=50');
+  async getAcademicTerms(query: { status?: string; search?: string; page?: number; pageSize?: number } = {}): Promise<AcademicTerm[]> {
+    const params = new URLSearchParams();
+    if (query.status) params.set('status', query.status);
+    if (query.search) params.set('search', query.search);
+    if (query.page) params.set('page', query.page.toString());
+    params.set('pageSize', (query.pageSize || 50).toString());
+
+    const res = await this.request<any>(`/academic-terms?${params.toString()}`);
+    return Array.isArray(res) ? res : res?.items || [];
+  }
+
+  async getAcademicTermById(id: string): Promise<AcademicTerm> {
+    return this.request<AcademicTerm>(`/academic-terms/${id}`);
+  }
+
+  async createAcademicTerm(data: { name: string; startDate: string; endDate: string; status?: 'PLANNED' | 'ACTIVE' | 'CLOSED' }): Promise<AcademicTerm> {
+    return this.request<AcademicTerm>('/academic-terms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAcademicTerm(id: string, data: { name?: string; startDate?: string; endDate?: string }): Promise<AcademicTerm> {
+    return this.request<AcademicTerm>(`/academic-terms/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async activateAcademicTerm(id: string): Promise<AcademicTerm> {
+    return this.request<AcademicTerm>(`/academic-terms/${id}/activate`, {
+      method: 'POST',
+    });
+  }
+
+  async closeAcademicTerm(id: string): Promise<AcademicTerm> {
+    return this.request<AcademicTerm>(`/academic-terms/${id}/close`, {
+      method: 'POST',
+    });
+  }
+
+  // Books, Parts and Segments
+  async getBooks(query: { search?: string; page?: number; pageSize?: number } = {}): Promise<BookItem[]> {
+    const params = new URLSearchParams();
+    if (query.search) params.set('search', query.search);
+    if (query.page) params.set('page', query.page.toString());
+    params.set('pageSize', (query.pageSize || 100).toString());
+
+    const res = await this.request<any>(`/books?${params.toString()}`);
+    return Array.isArray(res) ? res : res?.items || [];
+  }
+
+  async getBookById(id: string): Promise<BookItem> {
+    return this.request<BookItem>(`/books/${id}`);
+  }
+
+  async createBook(data: { name: string; level: string; sequenceOrder: number; sessionCount: number; isTerminal?: boolean; isActive?: boolean }): Promise<BookItem> {
+    return this.request<BookItem>('/books', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateBook(id: string, data: { name?: string; level?: string; sequenceOrder?: number; sessionCount?: number; isTerminal?: boolean; isActive?: boolean }): Promise<BookItem> {
+    return this.request<BookItem>(`/books/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getBookParts(bookId: string): Promise<BookPartItem[]> {
+    const res = await this.request<any>(`/books/${bookId}/parts`);
+    return Array.isArray(res) ? res : res?.items || [];
+  }
+
+  async createBookPart(bookId: string, data: { name: string; sequenceOrder: number }): Promise<BookPartItem> {
+    return this.request<BookPartItem>(`/books/${bookId}/parts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateBookPart(partId: string, data: { name?: string; sequenceOrder?: number }): Promise<BookPartItem> {
+    return this.request<BookPartItem>(`/book-parts/${partId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getBookSegments(partId: string): Promise<BookSegmentItem[]> {
+    const res = await this.request<any>(`/book-parts/${partId}/segments`);
+    return Array.isArray(res) ? res : res?.items || [];
+  }
+
+  async createBookSegment(partId: string, data: { name: string; sequenceOrder: number }): Promise<BookSegmentItem> {
+    return this.request<BookSegmentItem>(`/book-parts/${partId}/segments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateBookSegment(segmentId: string, data: { name?: string; sequenceOrder?: number }): Promise<BookSegmentItem> {
+    return this.request<BookSegmentItem>(`/book-segments/${segmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Students
+  async getStudents(query: { search?: string; isActive?: boolean; page?: number; pageSize?: number } = {}): Promise<{ items: StudentItem[]; total: number }> {
+    const params = new URLSearchParams();
+    if (query.search) params.set('search', query.search);
+    if (query.isActive !== undefined) params.set('isActive', String(query.isActive));
+    if (query.page) params.set('page', query.page.toString());
+    params.set('pageSize', (query.pageSize || 50).toString());
+
+    const res = await this.request<any>(`/students?${params.toString()}`);
+    if (Array.isArray(res)) {
+      return { items: res, total: res.length };
+    }
+    return { items: res?.items || [], total: res?.total || 0 };
+  }
+
+  async getStudentById(id: string): Promise<StudentItem> {
+    return this.request<StudentItem>(`/students/${id}`);
+  }
+
+  async createStudent(data: { firstName: string; lastName: string; shahvarCode?: string | null; isActive?: boolean }): Promise<StudentItem> {
+    return this.request<StudentItem>('/students', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateStudent(id: string, data: { firstName?: string; lastName?: string; shahvarCode?: string | null; isActive?: boolean }): Promise<StudentItem> {
+    return this.request<StudentItem>(`/students/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getStudentEnrollments(studentId: string): Promise<EnrollmentItem[]> {
+    const res = await this.request<any>(`/students/${studentId}/enrollments`);
     return Array.isArray(res) ? res : res?.items || [];
   }
 
   // Teachers
-  async getTeachers(): Promise<Teacher[]> {
-    const res = await this.request<any>('/teachers?pageSize=100');
+  async getTeachers(query: { search?: string; isActive?: boolean; page?: number; pageSize?: number } = {}): Promise<{ items: Teacher[]; total: number }> {
+    const params = new URLSearchParams();
+    if (query.search) params.set('search', query.search);
+    if (query.isActive !== undefined) params.set('isActive', String(query.isActive));
+    if (query.page) params.set('page', query.page.toString());
+    params.set('pageSize', (query.pageSize || 100).toString());
+
+    const res = await this.request<any>(`/teachers?${params.toString()}`);
+    if (Array.isArray(res)) {
+      return { items: res, total: res.length };
+    }
+    return { items: res?.items || [], total: res?.total || 0 };
+  }
+
+  async getTeacherById(id: string): Promise<Teacher> {
+    return this.request<Teacher>(`/teachers/${id}`);
+  }
+
+  async createTeacher(data: { firstName: string; lastName: string; baseRate?: string; isActive?: boolean; accountId?: string | null }): Promise<Teacher> {
+    return this.request<Teacher>('/teachers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateTeacher(id: string, data: { firstName?: string; lastName?: string; baseRate?: string; isActive?: boolean }): Promise<Teacher> {
+    return this.request<Teacher>(`/teachers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getTeacherSkills(teacherId: string): Promise<TeacherSkillItem[]> {
+    const res = await this.request<any>(`/teachers/${teacherId}/skills`);
     return Array.isArray(res) ? res : res?.items || [];
   }
 
+  async addTeacherSkill(teacherId: string, data: { bookId: string }): Promise<TeacherSkillItem> {
+    return this.request<TeacherSkillItem>(`/teachers/${teacherId}/skills`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTeacherSkill(teacherId: string, skillId: string): Promise<void> {
+    return this.request<void>(`/teachers/${teacherId}/skills/${skillId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Classes
-  async getClasses(filter: { academicTermId?: string; teacherId?: string } = {}): Promise<ClassItem[]> {
+  async getClasses(filter: { academicTermId?: string; teacherId?: string; bookId?: string; status?: string; page?: number; pageSize?: number } = {}): Promise<ClassItem[]> {
     const params = new URLSearchParams();
     if (filter.academicTermId) params.set('academicTermId', filter.academicTermId);
     if (filter.teacherId) params.set('teacherId', filter.teacherId);
-    params.set('pageSize', '100');
+    if (filter.bookId) params.set('bookId', filter.bookId);
+    if (filter.status) params.set('status', filter.status);
+    if (filter.page) params.set('page', filter.page.toString());
+    params.set('pageSize', (filter.pageSize || 100).toString());
 
     const res = await this.request<any>(`/classes?${params.toString()}`);
     return Array.isArray(res) ? res : res?.items || [];
@@ -197,6 +470,89 @@ class ApiClient {
 
   async getClassById(id: string): Promise<ClassItem> {
     return this.request<ClassItem>(`/classes/${id}`);
+  }
+
+  async createClass(data: {
+    academicTermId: string;
+    bookId: string;
+    bookSegmentId?: string | null;
+    teacherId?: string | null;
+    className?: string;
+    classType?: 'REGULAR' | 'PRIVATE';
+    status?: 'DRAFT' | 'ACTIVE';
+    capacity?: number;
+  }): Promise<ClassItem> {
+    return this.request<ClassItem>('/classes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateClass(
+    id: string,
+    data: {
+      bookSegmentId?: string | null;
+      teacherId?: string | null;
+      classType?: 'REGULAR' | 'PRIVATE';
+      status?: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+      capacity?: number;
+    },
+  ): Promise<ClassItem> {
+    return this.request<ClassItem>(`/classes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async activateClass(id: string): Promise<ClassItem> {
+    return this.request<ClassItem>(`/classes/${id}/activate`, {
+      method: 'POST',
+    });
+  }
+
+  async completeClass(id: string): Promise<ClassItem> {
+    return this.request<ClassItem>(`/classes/${id}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelClass(id: string): Promise<ClassItem> {
+    return this.request<ClassItem>(`/classes/${id}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  // Class Enrollments
+  async getClassEnrollments(classId: string, query: { status?: string; page?: number; pageSize?: number } = {}): Promise<{ items: EnrollmentItem[]; total: number }> {
+    const params = new URLSearchParams();
+    if (query.status) params.set('status', query.status);
+    if (query.page) params.set('page', query.page.toString());
+    params.set('pageSize', (query.pageSize || 50).toString());
+
+    const res = await this.request<any>(`/classes/${classId}/enrollments?${params.toString()}`);
+    if (Array.isArray(res)) {
+      return { items: res, total: res.length };
+    }
+    return { items: res?.items || [], total: res?.total || 0 };
+  }
+
+  async createEnrollment(classId: string, data: { studentId: string; status?: 'ACTIVE' }): Promise<EnrollmentItem> {
+    return this.request<EnrollmentItem>(`/classes/${classId}/enrollments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async withdrawEnrollment(enrollmentId: string): Promise<EnrollmentItem> {
+    return this.request<EnrollmentItem>(`/enrollments/${enrollmentId}/withdraw`, {
+      method: 'POST',
+    });
+  }
+
+  async completeEnrollment(enrollmentId: string): Promise<EnrollmentItem> {
+    return this.request<EnrollmentItem>(`/enrollments/${enrollmentId}/complete`, {
+      method: 'POST',
+    });
   }
 
   // Schedules
