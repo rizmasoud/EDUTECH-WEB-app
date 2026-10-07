@@ -37,13 +37,19 @@ import {
   Users,
   GraduationCap,
   LayoutGrid,
+  X,
+  Shield,
+  LogOut,
 } from 'lucide-react';
 
 export default function SchedulingAppPage() {
-  // Authentication & Role State
+  // Authentication & Role State - RBAC strictly derived from authenticated session
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [userRole, setUserRole] = useState<'SUPERVISOR' | 'TEACHER'>('SUPERVISOR');
   const [authLoading, setAuthLoading] = useState(true);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginPersonnelCode, setLoginPersonnelCode] = useState('SUP-01');
+  const [loginPassword, setLoginPassword] = useState('SupervisorPass123!');
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Main Section Navigation
   const [mainSection, setMainSection] = useState<
@@ -88,32 +94,40 @@ export default function SchedulingAppPage() {
     }, 5000);
   };
 
-  // Switch role between Supervisor (SUP-01) and Teacher (TCH-01)
-  const handleSwitchRole = async (targetRole: 'SUPERVISOR' | 'TEACHER') => {
-    if (process.env.NODE_ENV === 'production') {
-      showNotification('error', 'Role switching via hardcoded credentials is disabled in production.');
-      return;
-    }
+  // Real Authentication Logout
+  const handleLogout = async () => {
     setLoading(true);
     try {
-      if (targetRole === 'SUPERVISOR') {
-        const res = await apiClient.login('SUP-01', 'SupervisorPass123!');
-        setCurrentUser(res.account);
-        setUserRole('SUPERVISOR');
-        showNotification('info', 'Switched session to Supervisor (SUP-01).');
-      } else {
-        const res = await apiClient.login('TCH-01', 'TeacherPass123!');
-        setCurrentUser(res.account);
-        setUserRole('TEACHER');
-        showNotification('info', 'Switched session to Teacher (TCH-01) - Read-only view enabled.');
-      }
-      await refreshData();
-    } catch (err: any) {
-      // If login credentials differ or fail, toggle local presentation state
-      setUserRole(targetRole);
-      showNotification('info', `Switched view mode to ${targetRole}.`);
+      await apiClient.logout();
+      setCurrentUser(null);
+      setIsLoginModalOpen(true);
+      showNotification('info', 'Logged out successfully.');
+    } catch {
+      setCurrentUser(null);
+      setIsLoginModalOpen(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Real Authentication Login
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginPersonnelCode || !loginPassword) {
+      setAuthError('Please enter both personnel code and password.');
+      return;
+    }
+    setActionLoading(true);
+    setAuthError(null);
+    try {
+      const res = await apiClient.login(loginPersonnelCode, loginPassword);
+      setCurrentUser(res.account);
+      setIsLoginModalOpen(false);
+      showNotification('success', `Signed in as ${res.account.personnelCode} (${res.account.roles.join(', ')}).`);
+    } catch (err: any) {
+      setAuthError(err.message || 'Authentication failed. Please verify credentials.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -124,22 +138,22 @@ export default function SchedulingAppPage() {
     async function initAuth() {
       setAuthLoading(true);
       try {
-        // Try getting existing session
         const me = await apiClient.getMe();
         if (isMounted) {
           setCurrentUser(me);
-          setUserRole(me.roles.includes('SUPERVISOR') ? 'SUPERVISOR' : 'TEACHER');
         }
       } catch {
-        // Fallback: Login as default Supervisor
+        // Attempt default Supervisor login for seamless dev/testing
         try {
           const res = await apiClient.login('SUP-01', 'SupervisorPass123!');
           if (isMounted) {
             setCurrentUser(res.account);
-            setUserRole('SUPERVISOR');
           }
-        } catch (loginErr) {
-          console.warn('Default supervisor login fallback:', loginErr);
+        } catch {
+          if (isMounted) {
+            setCurrentUser(null);
+            setIsLoginModalOpen(true);
+          }
         }
       } finally {
         if (isMounted) setAuthLoading(false);
@@ -419,7 +433,7 @@ export default function SchedulingAppPage() {
   const scheduledClassIds = new Set(schedules.map((s) => s.classId));
   const scheduledCount = classes.filter((c) => scheduledClassIds.has(c.id)).length;
   const unscheduledCount = classes.length - scheduledCount;
-  const isSupervisor = userRole === 'SUPERVISOR';
+  const isSupervisor = currentUser?.roles?.includes('SUPERVISOR') ?? false;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
@@ -429,7 +443,8 @@ export default function SchedulingAppPage() {
         activeTerm={activeTerm}
         terms={terms}
         onSelectTerm={handleSelectTerm}
-        onSwitchRole={handleSwitchRole}
+        onLogout={handleLogout}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
         onRefresh={refreshData}
         loading={loading}
         totalClasses={classes.length}
@@ -804,6 +819,124 @@ export default function SchedulingAppPage() {
           if (sched) await handleDeleteSchedule(sched);
         }}
       />
+
+      {/* Real Auth Login / Account Switch Modal */}
+      {(isLoginModalOpen || !currentUser) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  Authenticate Account
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Sign in with personnel code to establish authenticated session
+                </p>
+              </div>
+              {currentUser && (
+                <button onClick={() => setIsLoginModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+
+            {authError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-slate-300 font-semibold text-xs">Quick Role Account Selection</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginPersonnelCode('SUP-01');
+                    setLoginPassword('SupervisorPass123!');
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    loginPersonnelCode === 'SUP-01'
+                      ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-xs flex items-center gap-1">
+                    <Shield className="h-3.5 w-3.5 text-indigo-400" />
+                    <span>SUP-01</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Supervisor Account</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginPersonnelCode('TCH-01');
+                    setLoginPassword('TeacherPass123!');
+                  }}
+                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
+                    loginPersonnelCode === 'TCH-01'
+                      ? 'bg-emerald-600/20 border-emerald-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-xs flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>TCH-01</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Teacher Account</span>
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Personnel Code *</label>
+                <input
+                  type="text"
+                  value={loginPersonnelCode}
+                  onChange={(e) => setLoginPersonnelCode(e.target.value)}
+                  placeholder="SUP-01 or TCH-01"
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Password *</label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                {currentUser && (
+                  <button
+                    type="button"
+                    onClick={() => setIsLoginModalOpen(false)}
+                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-medium"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {actionLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  <span>Sign In</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

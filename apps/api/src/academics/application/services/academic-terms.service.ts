@@ -61,14 +61,36 @@ export class AcademicTermsService {
       });
     }
 
-    const created = await this.termRepo.create({
-      name,
-      startDate,
-      endDate,
-      status: (status as AcademicTermStatus) ?? 'PLANNED',
-    });
+    if (status === 'ACTIVE') {
+      const activeTerm = await this.termRepo.findConflictingActiveTerm();
+      if (activeTerm) {
+        throw new HttpException(
+          {
+            error: {
+              code: 'ACTIVE_TERM_EXISTS',
+              message: `Cannot create active term '${name}' because term '${activeTerm.name}' is already ACTIVE.`,
+            },
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
 
-    return this.mapToDto(created);
+    try {
+      const created = await this.termRepo.create({
+        name,
+        startDate,
+        endDate,
+        status: (status as AcademicTermStatus) ?? 'PLANNED',
+      });
+
+      return this.mapToDto(created);
+    } catch (dbErr: any) {
+      throw new BadRequestException({
+        code: 'ACADEMIC_TERM_CREATE_FAILED',
+        message: dbErr.message || 'Failed to create academic term due to database constraint.',
+      });
+    }
   }
 
   async findAll(query: QueryAcademicTermsInput): Promise<PaginatedResult<AcademicTermResponseDto>> {

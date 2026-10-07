@@ -277,7 +277,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
               <thead>
                 <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold">
                   <th className="p-4">Teacher Name</th>
-                  <th className="p-4">Base Hourly Rate</th>
+                  <th className="p-4">دستمزد هر کلاس</th>
                   <th className="p-4">Account Linked</th>
                   <th className="p-4">Status</th>
                   <th className="p-4 text-right">Actions</th>
@@ -290,7 +290,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
                       {teacher.firstName} {teacher.lastName}
                     </td>
                     <td className="p-4 text-emerald-400 font-mono font-medium">
-                      ${parseFloat(teacher.baseRate || '35').toFixed(2)}/hr
+                      {teacher.baseRate ? Number(teacher.baseRate).toLocaleString('fa-IR') : '0'}
                     </td>
                     <td className="p-4">
                       {teacher.accountId ? (
@@ -377,18 +377,15 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Base Hourly Rate ($) *</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
-                  <input
-                    type="text"
-                    value={formBaseRate}
-                    onChange={(e) => setFormBaseRate(e.target.value)}
-                    placeholder="35.00"
-                    required
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-                  />
-                </div>
+                <label className="block text-slate-300 font-semibold mb-1">دستمزد هر کلاس *</label>
+                <input
+                  type="text"
+                  value={formBaseRate}
+                  onChange={(e) => setFormBaseRate(e.target.value)}
+                  placeholder="350000"
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                />
               </div>
 
               {editingTeacher && (

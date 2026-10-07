@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient, StudentItem, EnrollmentItem } from '../../lib/api-client';
+import { formatPersianDate } from '../../../../lib/utils';
 import {
   Users,
   Search,
@@ -446,7 +447,7 @@ export function StudentsManager({ isSupervisor = true }: StudentsManagerProps) {
                           <span>{enr.class?.className || `Class ID: ${enr.classId.substring(0, 8)}...`}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                          Enrolled on {new Date(enr.joinedAt).toLocaleDateString()}
+                          Enrolled on {formatPersianDate(enr.joinedAt)}
                         </div>
                       </div>
                       <span

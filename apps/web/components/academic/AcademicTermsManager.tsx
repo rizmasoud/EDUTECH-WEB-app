@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient, AcademicTerm } from '../../lib/api-client';
+import { formatPersianDate } from '../../../../lib/utils';
 import {
   Calendar,
   Plus,
@@ -291,8 +292,8 @@ export function AcademicTermsManager({
                           </span>
                         )}
                       </td>
-                      <td className="p-4 text-slate-300">{term.startDate}</td>
-                      <td className="p-4 text-slate-300">{term.endDate}</td>
+                      <td className="p-4 text-slate-300">{formatPersianDate(term.startDate)}</td>
+                      <td className="p-4 text-slate-300">{formatPersianDate(term.endDate)}</td>
                       <td className="p-4">{getStatusBadge(term.status)}</td>
                       <td className="p-4 text-right space-x-2">
                         {onSelectTerm && (

@@ -2,14 +2,15 @@
 
 import React from 'react';
 import type { AcademicTerm, UserAccount } from '../../lib/api-client';
-import { Calendar, User, RefreshCw, Eye, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, User, RefreshCw, LogOut, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface SchedulingHeaderProps {
   user: UserAccount | null;
   activeTerm: AcademicTerm | null;
   terms: AcademicTerm[];
   onSelectTerm: (term: AcademicTerm) => void;
-  onSwitchRole: (role: 'SUPERVISOR' | 'TEACHER') => void;
+  onLogout: () => void;
+  onOpenLogin?: () => void;
   onRefresh: () => void;
   loading: boolean;
   totalClasses: number;
@@ -22,15 +23,15 @@ export function SchedulingHeader({
   activeTerm,
   terms,
   onSelectTerm,
-  onSwitchRole,
+  onLogout,
+  onOpenLogin,
   onRefresh,
   loading,
   totalClasses,
   scheduledCount,
   unscheduledCount,
 }: SchedulingHeaderProps) {
-  const isSupervisor = user?.roles.includes('SUPERVISOR');
-  const isTeacher = user?.roles.includes('TEACHER') && !isSupervisor;
+  const isSupervisor = user?.roles?.includes('SUPERVISOR');
 
   return (
     <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-xs">
@@ -99,7 +100,7 @@ export function SchedulingHeader({
             </span>
           </div>
 
-          {/* Role Indicator & Quick Switcher */}
+          {/* Role Indicator & Sign Out / Switch Account */}
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-1">
             <div className="flex items-center gap-1.5 px-2 text-xs font-medium text-slate-700">
               {isSupervisor ? (
@@ -111,15 +112,23 @@ export function SchedulingHeader({
               <span className="text-slate-400">({isSupervisor ? 'Supervisor' : 'Teacher'})</span>
             </div>
 
-            {process.env.NODE_ENV !== 'production' && (
+            {user ? (
               <button
                 type="button"
-                onClick={() => onSwitchRole(isSupervisor ? 'TEACHER' : 'SUPERVISOR')}
+                onClick={onLogout}
                 className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-700 shadow-2xs hover:bg-slate-100 hover:text-slate-900 border border-slate-200 transition-colors"
-                title="Toggle role view to verify supervisor workflow vs teacher read-only view"
+                title="Sign out / switch account via real auth"
               >
-                <Eye className="h-3 w-3 text-slate-500" />
-                <span>{isSupervisor ? 'View as Teacher' : 'Back to Supervisor'}</span>
+                <LogOut className="h-3 w-3 text-slate-500" />
+                <span>Sign Out</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenLogin}
+                className="inline-flex items-center gap-1 rounded-md bg-indigo-600 text-white px-2 py-1 text-xs font-medium shadow-2xs hover:bg-indigo-500 transition-colors"
+              >
+                <span>Sign In</span>
               </button>
             )}
           </div>

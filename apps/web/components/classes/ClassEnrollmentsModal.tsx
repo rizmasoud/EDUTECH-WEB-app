@@ -7,6 +7,7 @@ import {
   EnrollmentItem,
   StudentItem,
 } from '../../lib/api-client';
+import { formatPersianDate } from '../../../../lib/utils';
 import {
   Users,
   Plus,
@@ -286,7 +287,7 @@ export function ClassEnrollmentsModal({
                         </span>
                       </td>
                       <td className="p-3 text-slate-400 text-[11px]">
-                        {new Date(enr.joinedAt).toLocaleDateString()}
+                        {formatPersianDate(enr.joinedAt)}
                       </td>
                       {isSupervisor && (
                         <td className="p-3 text-right space-x-1">
