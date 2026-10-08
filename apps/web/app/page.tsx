@@ -373,6 +373,105 @@ export default function SchedulingAppPage() {
     }
   };
 
+  // Multi-session Class Weekly Schedule Save Handler
+  const handleSaveClassSchedules = async (params: {
+    classId: string;
+    sessions: Array<{
+      id?: string;
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      startsOn?: string | null;
+      endsOn?: string | null;
+    }>;
+  }) => {
+    setActionLoading(true);
+    try {
+      const existingForClass = schedules.filter((s) => s.classId === params.classId);
+      const keptIds = new Set(params.sessions.map((s) => s.id).filter(Boolean));
+
+      // 1. Delete removed schedules
+      const toDelete = existingForClass.filter((s) => !keptIds.has(s.id));
+      for (const s of toDelete) {
+        await apiClient.deleteSchedule(s.id);
+      }
+
+      // 2. Process sessions: update existing, create new
+      for (const ses of params.sessions) {
+        if (ses.id) {
+          const orig = existingForClass.find((s) => s.id === ses.id);
+          if (
+            orig &&
+            (orig.dayOfWeek !== ses.dayOfWeek ||
+              orig.startTime.slice(0, 5) !== ses.startTime.slice(0, 5) ||
+              orig.endTime.slice(0, 5) !== ses.endTime.slice(0, 5) ||
+              (orig.startsOn || null) !== (ses.startsOn || null) ||
+              (orig.endsOn || null) !== (ses.endsOn || null))
+          ) {
+            await apiClient.updateSchedule(ses.id, {
+              dayOfWeek: ses.dayOfWeek,
+              startTime: ses.startTime,
+              endTime: ses.endTime,
+              startsOn: ses.startsOn || null,
+              endsOn: ses.endsOn || null,
+            });
+          }
+        } else {
+          await apiClient.createSchedule({
+            classId: params.classId,
+            dayOfWeek: ses.dayOfWeek,
+            startTime: ses.startTime,
+            endTime: ses.endTime,
+            startsOn: ses.startsOn || null,
+            endsOn: ses.endsOn || null,
+          });
+        }
+      }
+
+      const targetCls = classes.find((c) => c.id === params.classId);
+      showNotification(
+        'success',
+        `Weekly schedule for "${targetCls?.className || 'Class'}" saved (${params.sessions.length} session${params.sessions.length > 1 ? 's' : ''}/week).`
+      );
+      await refreshData();
+    } catch (err: any) {
+      showNotification('error', `Failed to save weekly schedule: ${err.message}`);
+      throw err;
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Delete All Schedules For Class
+  const handleDeleteAllClassSchedules = async (classId: string) => {
+    const existingForClass = schedules.filter((s) => s.classId === classId);
+    if (existingForClass.length === 0) return;
+    const targetCls = classes.find((c) => c.id === classId);
+    if (
+      !confirm(
+        `Are you sure you want to remove all ${existingForClass.length} schedule slot(s) for "${targetCls?.className || 'this class'}"?`
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      for (const s of existingForClass) {
+        await apiClient.deleteSchedule(s.id);
+      }
+      showNotification(
+        'success',
+        `All schedule slots removed for "${targetCls?.className || 'Class'}".`
+      );
+      await refreshData();
+    } catch (err: any) {
+      showNotification('error', `Failed to remove schedules: ${err.message}`);
+      throw err;
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Manual Schedule Save Handler
   const handleSaveManualSchedule = async (data: {
     scheduleId?: string;
@@ -613,6 +712,7 @@ export default function SchedulingAppPage() {
                 onGoToScheduling={(classItem) => {
                   setMainSection('SCHEDULING');
                   setActiveTab('OVERVIEW');
+                  handleOpenManualFromOverview(classItem);
                 }}
                 isSupervisor={isSupervisor}
               />
@@ -717,6 +817,9 @@ export default function SchedulingAppPage() {
                     }}
                     onOpenManualSchedule={handleOpenManualFromOverview}
                     onDeleteSchedule={handleDeleteSchedule}
+                    onDeleteAllClassSchedules={async (cls) => {
+                      await handleDeleteAllClassSchedules(cls.id);
+                    }}
                   />
                 )}
 
@@ -823,7 +926,10 @@ export default function SchedulingAppPage() {
         classes={classes}
         initialClass={manualModalClass}
         initialSchedule={manualModalSchedule}
+        existingSchedules={schedules}
         defaultDayOfWeek={manualModalDay}
+        onSaveClassSchedules={handleSaveClassSchedules}
+        onDeleteClassSchedules={handleDeleteAllClassSchedules}
         onSaveSchedule={handleSaveManualSchedule}
         onDeleteSchedule={async (id) => {
           const sched = schedules.find((s) => s.id === id);
