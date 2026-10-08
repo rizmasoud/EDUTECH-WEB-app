@@ -160,36 +160,98 @@ export interface Schedule {
 
 export interface ProposedClassSlot {
   classId: string;
+  teacherId?: string | null;
   dayOfWeek: number;
   startTime: string;
   endTime: string;
   isValid: boolean;
+  score?: number;
+  hardConstraintReports?: any[];
+  preferenceReports?: any[];
   conflicts: Array<{
     code: string;
-    explanation: string;
+    message?: string;
+    explanation?: string;
+    severity?: string;
+    classId?: string;
+    teacherId?: string | null;
+    studentId?: string | null;
+    dayOfWeek?: number;
+    startTime?: string;
+    endTime?: string;
     conflictingEntityId?: string;
+    details?: Record<string, any>;
   }>;
-  score?: number;
 }
 
 export interface ProposalData {
-  academicTermId?: string;
-  allowFriday: boolean;
-  generatedAt: string;
-  totalClasses: number;
-  validClassesCount: number;
-  invalidClassesCount: number;
   classes: ProposedClassSlot[];
+  conflicts: Array<{
+    code: string;
+    message?: string;
+    explanation?: string;
+    severity?: string;
+    classId?: string;
+    teacherId?: string | null;
+    studentId?: string | null;
+    dayOfWeek?: number;
+    startTime?: string;
+    endTime?: string;
+    conflictingEntityId?: string;
+    details?: Record<string, any>;
+  }>;
+  preferences?: Array<{
+    preferenceName: string;
+    applied: boolean;
+    scoreContribution: number;
+    reason?: string;
+  }>;
+  explanations?: string[];
+  evaluatedClassCount: number;
+  validClassCount: number;
+  // Optional / backward-compatible properties
+  academicTermId?: string;
+  allowFriday?: boolean;
+  generatedAt?: string;
+  totalClasses?: number;
+  validClassesCount?: number;
+  invalidClassesCount?: number;
 }
 
 export interface SchedulingProposal {
   id: string;
   academicTermId: string | null;
+  createdBy?: string | null;
   status: 'DRAFT' | 'PENDING_REVIEW' | 'ACCEPTED' | 'MODIFIED' | 'REJECTED';
   data: ProposalData;
   rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
+  acceptedAt?: string | null;
+  rejectedAt?: string | null;
+}
+
+/**
+ * Distinguishes generic transport envelopes (e.g. ApiSuccessResponse<{ account: ... }>
+ * which wrap payloads solely inside `{ data: T }`) from domain entities/DTOs that
+ * legitimately carry their own `data` property (e.g. SchedulingProposalDto with id, status, data).
+ */
+export function isGenericApiEnvelope<T = unknown>(value: unknown): value is { data: T } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (!('data' in record) || record.data === undefined) {
+    return false;
+  }
+  // If the object carries domain entity properties such as an 'id', 'status', or 'proposalId',
+  // it is a domain entity or DTO with legitimate attributes, NOT a transport wrapper.
+  if ('id' in record || 'status' in record || 'proposalId' in record) {
+    return false;
+  }
+  // Standard generic envelopes only wrap data (with optional meta/message/pagination keys)
+  const allowedEnvelopeKeys = new Set(['data', 'meta', 'message']);
+  return Object.keys(record).every((key) => allowedEnvelopeKeys.has(key));
 }
 
 class ApiClient {
@@ -234,7 +296,12 @@ class ApiClient {
       throw err;
     }
 
-    return body?.data !== undefined ? body.data : body;
+    // Only unwrap generic transport envelopes ({ data: T }), preserving domain entities that have a `data` attribute
+    if (isGenericApiEnvelope<T>(body)) {
+      return body.data;
+    }
+
+    return body;
   }
 
   // Auth APIs
@@ -629,10 +696,10 @@ class ApiClient {
 
   async validateProposal(id: string): Promise<{
     proposalId: string;
-    isValid: boolean;
+    status: string;
+    isStillValid: boolean;
     conflicts: any[];
-    classes: ProposedClassSlot[];
-    validatedAt: string;
+    data: ProposalData;
   }> {
     return this.request(`/scheduling/proposals/${id}/validate`, {
       method: 'POST',
@@ -642,10 +709,9 @@ class ApiClient {
   async acceptProposal(id: string): Promise<{
     proposalId: string;
     status: string;
+    committedSchedulesCount: number;
+    scheduleIds: string[];
     acceptedAt: string;
-    acceptedBy: string;
-    createdSchedulesCount: number;
-    deletedSchedulesCount?: number;
   }> {
     return this.request(`/scheduling/proposals/${id}/accept`, {
       method: 'POST',

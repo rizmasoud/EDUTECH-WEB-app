@@ -61,12 +61,38 @@ export function ProposalReviewPanel({
     validatedAt: string;
   } | null>(null);
 
+  // Defensive guard against missing or malformed proposal data
+  if (!proposal || !proposal.data || !Array.isArray(proposal.data.classes)) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-8 text-center space-y-3">
+        <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+          <AlertTriangle className="w-5 h-5" />
+        </div>
+        <h3 className="text-sm font-semibold text-amber-900">
+          Proposal Data Unavailable
+        </h3>
+        <p className="text-xs text-amber-700 max-w-md mx-auto">
+          The selected scheduling proposal is missing class evaluation data. Please re-generate or choose another proposal from the archive.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3.5 py-1.5 rounded-lg bg-amber-200/80 hover:bg-amber-200 text-amber-900 text-xs font-semibold transition cursor-pointer"
+        >
+          Return to Overview
+        </button>
+      </div>
+    );
+  }
+
   const classMap = new Map<string, ClassItem>();
   classes.forEach((c) => classMap.set(c.id, c));
 
   const statusStyle = STATUS_STYLES[proposal.status] || STATUS_STYLES.DRAFT;
   const isTerminal = proposal.status === 'ACCEPTED' || proposal.status === 'REJECTED';
-  const allValid = proposal.data.classes.every((c) => c.isValid);
+  const allValid =
+    proposal.data.classes.length > 0 &&
+    proposal.data.classes.every((c) => c.isValid);
 
   const startEditing = (proposed: ProposedClassSlot) => {
     setEditingClassId(proposed.classId);
@@ -95,7 +121,7 @@ export function ProposalReviewPanel({
     setValidationResult(null);
     await onValidate(proposal.id);
     setValidationResult({
-      isValid: proposal.data.classes.every((c) => c.isValid),
+      isValid: proposal.data?.classes?.every((c) => c.isValid) ?? false,
       validatedAt: new Date().toLocaleTimeString(),
     });
   };
@@ -404,7 +430,7 @@ export function ProposalReviewPanel({
                       return (
                         <div key={idx} className="text-[11px] text-rose-800">
                           <span className="font-semibold">{info.label}:</span>{' '}
-                          <span>{conf.explanation || info.description}</span>
+                          <span>{conf.message || conf.explanation || info.description}</span>
                           {conf.conflictingEntityId && (
                             <span className="text-rose-600 ml-1 font-mono text-[10px]">
                               [ref: {conf.conflictingEntityId.slice(0, 8)}]

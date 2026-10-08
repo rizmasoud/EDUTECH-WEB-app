@@ -158,4 +158,94 @@ describe('Phase 5 Frontend Workflow Components', () => {
     assert.ok(html.includes('Permit Friday Scheduling'), 'Should render Friday policy toggle');
     assert.ok(html.includes('Full Academic Term'), 'Should render term scope option');
   });
+
+  it('isGenericApiEnvelope correctly distinguishes transport envelopes from domain entities with data property', async () => {
+    const { isGenericApiEnvelope } = await import('../../apps/web/lib/api-client');
+
+    // 1. Generic transport envelopes must be identified as true
+    const authLoginEnvelope = { data: { account: { id: 'usr-1', roles: ['SUPERVISOR'] } } };
+    assert.strictEqual(isGenericApiEnvelope(authLoginEnvelope), true, 'Auth login envelope should be unwrapped');
+
+    const authLogoutEnvelope = { data: { success: true } };
+    assert.strictEqual(isGenericApiEnvelope(authLogoutEnvelope), true, 'Auth logout envelope should be unwrapped');
+
+    const authMeEnvelope = { data: { id: 'usr-1', personnelCode: 'SUP-01' } };
+    // Wait: if authMeEnvelope has 'id' inside data, that's fine because record.id is undefined:
+    assert.strictEqual(isGenericApiEnvelope(authMeEnvelope), true, 'Auth me envelope should be unwrapped');
+
+    // 2. Domain entities that legitimately have a `data` property must NOT be treated as envelopes
+    const schedulingProposalEntity = {
+      id: 'prop-1',
+      academicTermId: 'term-1',
+      status: 'PENDING_REVIEW',
+      data: {
+        classes: [],
+        conflicts: [],
+        preferences: [],
+        explanations: [],
+        evaluatedClassCount: 0,
+        validClassCount: 0,
+      },
+    };
+    assert.strictEqual(
+      isGenericApiEnvelope(schedulingProposalEntity),
+      false,
+      'SchedulingProposalDto must NOT be treated as a transport envelope'
+    );
+
+    const validateProposalDto = {
+      proposalId: 'prop-1',
+      status: 'PENDING_REVIEW',
+      isStillValid: true,
+      conflicts: [],
+      data: {
+        classes: [],
+        conflicts: [],
+        preferences: [],
+        explanations: [],
+        evaluatedClassCount: 0,
+        validClassCount: 0,
+      },
+    };
+    assert.strictEqual(
+      isGenericApiEnvelope(validateProposalDto),
+      false,
+      'ValidateProposalResponseDto must NOT be treated as a transport envelope'
+    );
+
+    // 3. Regular DTOs without a data property
+    assert.strictEqual(isGenericApiEnvelope({ id: 'cls-1', className: 'Math' }), false);
+    assert.strictEqual(isGenericApiEnvelope([1, 2, 3]), false);
+    assert.strictEqual(isGenericApiEnvelope(null), false);
+  });
+
+  it('ProposalReviewPanel handles malformed proposal data defensively without crashing', () => {
+    // Malformed proposal where `data` is missing or classes is not an array
+    const malformedProposal: any = {
+      id: 'prop-malformed',
+      academicTermId: 'term-1',
+      status: 'PENDING_REVIEW',
+      data: null,
+    };
+
+    assert.doesNotThrow(() => {
+      const html = renderToString(
+        React.createElement(ProposalReviewPanel, {
+          proposal: malformedProposal,
+          classes: [mockClass],
+          onValidate: async () => {},
+          onAccept: async () => {},
+          onReject: async () => {},
+          onModifySlot: async () => {},
+          onClose: () => {},
+          isActionLoading: false,
+        })
+      );
+
+      assert.ok(
+        html.includes('Proposal Data Unavailable'),
+        'Should render defensive error state instead of crashing'
+      );
+    });
+  });
 });

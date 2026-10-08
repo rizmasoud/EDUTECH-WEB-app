@@ -67,9 +67,9 @@ export function ProposalHistory({
               proposals.map((p) => {
                 const term = p.academicTermId ? termMap.get(p.academicTermId) : null;
                 const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.DRAFT;
-                const total = p.data?.classes?.length ?? 0;
-                const validCount = p.data?.classes?.filter((c) => c.isValid).length ?? 0;
-                const invalidCount = total - validCount;
+                const total = p.data?.evaluatedClassCount ?? p.data?.classes?.length ?? 0;
+                const validCount = p.data?.validClassCount ?? p.data?.classes?.filter((c) => c.isValid).length ?? 0;
+                const invalidCount = Math.max(0, total - validCount);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">

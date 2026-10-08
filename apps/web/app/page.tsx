@@ -270,9 +270,20 @@ export default function SchedulingAppPage() {
       const newProposal = await apiClient.generateProposal(params);
       setActiveProposal(newProposal);
       setActiveTab('PROPOSAL');
+
+      const evaluatedCount =
+        newProposal.data?.evaluatedClassCount ??
+        newProposal.data?.classes?.length ??
+        0;
+      const validCount =
+        newProposal.data?.validClassCount ??
+        newProposal.data?.classes?.filter((c) => c.isValid).length ??
+        0;
+      const conflictedCount = Math.max(0, evaluatedCount - validCount);
+
       showNotification(
         'success',
-        `Proposal generated successfully! Evaluated ${newProposal.data.classes.length} classes (${newProposal.data.validClassesCount} valid, ${newProposal.data.invalidClassesCount} conflicted).`
+        `Proposal generated successfully! Evaluated ${evaluatedCount} classes (${validCount} valid, ${conflictedCount} conflicted).`
       );
       await refreshData();
     } catch (err: any) {
@@ -292,8 +303,8 @@ export default function SchedulingAppPage() {
       const updated = await apiClient.getProposalById(proposalId);
       setActiveProposal(updated);
       showNotification(
-        res.isValid ? 'success' : 'info',
-        res.isValid
+        res.isStillValid ? 'success' : 'info',
+        res.isStillValid
           ? 'Proposal revalidated cleanly! All proposed slots meet constraints.'
           : `Revalidation complete: ${res.conflicts.length} conflict(s) detected.`
       );
@@ -312,7 +323,7 @@ export default function SchedulingAppPage() {
       const res = await apiClient.acceptProposal(proposalId);
       showNotification(
         'success',
-        `Proposal ACCEPTED! ${res.createdSchedulesCount} schedule slot(s) committed to the database.`
+        `Proposal ACCEPTED! ${res.committedSchedulesCount} schedule slot(s) committed to the database.`
       );
       // Update proposal state
       const updated = await apiClient.getProposalById(proposalId);
