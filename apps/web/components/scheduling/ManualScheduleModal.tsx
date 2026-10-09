@@ -195,6 +195,19 @@ function ManualScheduleDialogContent({
     });
   };
 
+  // Derived preset active states strictly based on current configured weekly sessions
+  const isOddCycleActive = React.useMemo(() => {
+    if (sessions.length !== 3) return false;
+    const days = new Set(sessions.map((s) => Number(s.dayOfWeek)));
+    return days.size === 3 && days.has(0) && days.has(2) && days.has(4);
+  }, [sessions]);
+
+  const isEvenCycleActive = React.useMemo(() => {
+    if (sessions.length !== 3) return false;
+    const days = new Set(sessions.map((s) => Number(s.dayOfWeek)));
+    return days.size === 3 && days.has(6) && days.has(1) && days.has(3);
+  }, [sessions]);
+
   // Apply quick schedule presets
   const applyPreset = (pattern: 'ODD' | 'EVEN') => {
     const baseStart = sessions[0]?.startTime || '17:00';
@@ -519,18 +532,36 @@ function ManualScheduleDialogContent({
             <button
               type="button"
               onClick={() => applyPreset('ODD')}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100/60 shadow-2xs transition-colors"
+              aria-pressed={isOddCycleActive}
+              data-active={isOddCycleActive ? 'true' : 'false'}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors cursor-pointer select-none focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+                isOddCycleActive
+                  ? 'bg-indigo-600 text-white font-semibold shadow-xs border border-indigo-700 hover:bg-indigo-700'
+                  : 'bg-white text-slate-700 font-medium border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+              }`}
             >
-              <Sparkles className="w-3 h-3 text-indigo-500" />
+              <Sparkles className={`w-3 h-3 ${isOddCycleActive ? 'text-indigo-200' : 'text-slate-400'}`} />
               <span>Odd Cycle (Sun / Tue / Thu · 3x)</span>
+              {isOddCycleActive && (
+                <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-white shadow-2xs" />
+              )}
             </button>
             <button
               type="button"
               onClick={() => applyPreset('EVEN')}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-2xs transition-colors"
+              aria-pressed={isEvenCycleActive}
+              data-active={isEvenCycleActive ? 'true' : 'false'}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors cursor-pointer select-none focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+                isEvenCycleActive
+                  ? 'bg-indigo-600 text-white font-semibold shadow-xs border border-indigo-700 hover:bg-indigo-700'
+                  : 'bg-white text-slate-700 font-medium border border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+              }`}
             >
-              <Sparkles className="w-3 h-3 text-slate-400" />
+              <Sparkles className={`w-3 h-3 ${isEvenCycleActive ? 'text-indigo-200' : 'text-slate-400'}`} />
               <span>Even Cycle (Sat / Mon / Wed · 3x)</span>
+              {isEvenCycleActive && (
+                <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-white shadow-2xs" />
+              )}
             </button>
           </div>
         </div>

@@ -209,7 +209,7 @@ export function ClassesOverview({
                     }`}
                   >
                     {isSupervisor && (
-                      <td className="px-3 py-3 text-center">
+                      <td className="px-3 py-3 text-center align-middle">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -220,7 +220,7 @@ export function ClassesOverview({
                     )}
 
                     {/* Class Name */}
-                    <td className="px-4 py-3 font-medium text-slate-900">
+                    <td className="px-4 py-3 font-medium text-slate-900 align-middle">
                       <div className="flex items-center gap-1.5">
                         <span>{cls.className}</span>
                         {cls.classType === 'PRIVATE' && (
@@ -232,7 +232,7 @@ export function ClassesOverview({
                     </td>
 
                     {/* Book */}
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-slate-600 align-middle">
                       {cls.book ? (
                         <div className="flex items-center gap-1 text-[11px]">
                           <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -245,7 +245,7 @@ export function ClassesOverview({
                     </td>
 
                     {/* Teacher */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-middle">
                       {cls.teacher ? (
                         <div className="flex items-center gap-1 text-slate-700">
                           <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -262,7 +262,7 @@ export function ClassesOverview({
                     </td>
 
                     {/* Capacity */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-middle">
                       <div className="flex items-center gap-1 text-slate-600">
                         <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>
@@ -272,7 +272,7 @@ export function ClassesOverview({
                     </td>
 
                     {/* Schedule */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-middle">
                       {isScheduled ? (
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-1.5">
@@ -305,14 +305,14 @@ export function ClassesOverview({
 
                     {/* Supervisor Actions */}
                     {isSupervisor && (
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right align-middle">
                         <div className="inline-flex items-center gap-1.5">
                           {isScheduled ? (
                             <>
                               <button
                                 type="button"
                                 onClick={() => onOpenManualSchedule(cls, classSchedules[0])}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded transition-colors"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md transition-colors self-center shrink-0"
                                 title="Configure Weekly Schedule"
                               >
                                 <Edit2 className="w-3 h-3" />
@@ -325,7 +325,7 @@ export function ClassesOverview({
                                     ? onDeleteAllClassSchedules(cls)
                                     : onDeleteSchedule(classSchedules[0])
                                 }
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors self-center shrink-0"
                                 title="Clear All Slots"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -335,7 +335,7 @@ export function ClassesOverview({
                             <button
                               type="button"
                               onClick={() => onOpenManualSchedule(cls)}
-                              className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2.5 py-1 rounded border border-indigo-200 transition-colors"
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-200 transition-colors self-center shrink-0"
                               title="Configure Weekly Schedule"
                             >
                               <Plus className="w-3 h-3" />
