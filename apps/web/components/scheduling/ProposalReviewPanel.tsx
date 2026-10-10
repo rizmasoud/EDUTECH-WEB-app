@@ -9,6 +9,7 @@ import {
   formatTimeRange,
   getConflictInfo,
   STATUS_STYLES,
+  getPastelColor,
 } from '../../lib/scheduling-utils';
 import {
   CheckCircle2,
@@ -295,6 +296,10 @@ export function ProposalReviewPanel({
                 {/* Class Info */}
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(cls?.color).dotBg}`}
+                      title={`Class Color: ${getPastelColor(cls?.color).name}`}
+                    />
                     <h3 className="text-xs font-semibold text-slate-900">
                       {cls?.className || `Class ID: ${proposed.classId.slice(0, 8)}`}
                     </h3>

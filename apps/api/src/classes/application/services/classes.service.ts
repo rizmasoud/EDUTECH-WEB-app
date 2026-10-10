@@ -40,6 +40,7 @@ export class ClassesService {
       classType: cls.classType,
       status: cls.status,
       capacity: cls.capacity,
+      color: cls.color || 'blue',
       activeEnrollmentCount,
       createdAt: cls.createdAt,
       updatedAt: cls.updatedAt,
@@ -136,6 +137,7 @@ export class ClassesService {
       classType,
       status,
       capacity,
+      color: data.color ?? 'blue',
     });
 
     return this.mapToDto(created, 0);
@@ -293,6 +295,7 @@ export class ClassesService {
       classType: data.classType as ClassType | undefined,
       status: data.status as ClassStatus | undefined,
       capacity: data.capacity,
+      color: data.color,
     });
 
     const activeCount = await this.classRepo.countActiveEnrollments(id);

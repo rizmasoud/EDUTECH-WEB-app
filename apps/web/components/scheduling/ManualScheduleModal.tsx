@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { WEEK_DAYS, getDayShortName } from '../../lib/scheduling-utils';
+import { WEEK_DAYS, getDayShortName, getPastelColor } from '../../lib/scheduling-utils';
 import {
   Calendar,
   X,
@@ -438,12 +438,23 @@ function ManualScheduleDialogContent({
           {initialClass ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-xs flex items-center justify-between">
               <div>
-                <span className="font-bold text-slate-900">
-                  {currentClass?.className || 'Selected Class'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(currentClass?.color).dotBg}`}
+                    title={`Class Color: ${getPastelColor(currentClass?.color).name}`}
+                  />
+                  <span className="font-bold text-slate-900">
+                    {currentClass?.className || 'Selected Class'}
+                  </span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${getPastelColor(currentClass?.color).badgeBg}`}
+                  >
+                    {getPastelColor(currentClass?.color).name}
+                  </span>
+                </div>
                 {currentClass?.book && (
-                  <span className="text-slate-500 ml-2">
-                    ({currentClass.book.name} - {currentClass.book.level})
+                  <span className="text-slate-500 mt-0.5 block">
+                    {currentClass.book.name} - {currentClass.book.level}
                   </span>
                 )}
                 {currentClass?.teacher && (

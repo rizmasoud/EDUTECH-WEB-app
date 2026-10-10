@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { getDayShortName, formatTimeRange } from '../../lib/scheduling-utils';
+import { getDayShortName, formatTimeRange, getPastelColor } from '../../lib/scheduling-utils';
 import {
   Calendar,
   Clock,
@@ -221,7 +221,11 @@ export function ClassesOverview({
 
                     {/* Class Name */}
                     <td className="px-4 py-3 font-medium text-slate-900 align-middle">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(cls.color).dotBg}`}
+                          title={`Class Color: ${getPastelColor(cls.color).name}`}
+                        />
                         <span>{cls.className}</span>
                         {cls.classType === 'PRIVATE' && (
                           <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-normal">

@@ -104,6 +104,7 @@ export interface ClassItem {
   classType: 'REGULAR' | 'PRIVATE';
   status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   capacity: number;
+  color?: string | null;
   enrolledCount?: number;
   schedules?: Schedule[];
   book?: {
@@ -548,6 +549,7 @@ class ApiClient {
     classType?: 'REGULAR' | 'PRIVATE';
     status?: 'DRAFT' | 'ACTIVE';
     capacity?: number;
+    color?: string | null;
   }): Promise<ClassItem> {
     return this.request<ClassItem>('/classes', {
       method: 'POST',
@@ -563,6 +565,7 @@ class ApiClient {
       classType?: 'REGULAR' | 'PRIVATE';
       status?: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
       capacity?: number;
+      color?: string | null;
     },
   ): Promise<ClassItem> {
     return this.request<ClassItem>(`/classes/${id}`, {

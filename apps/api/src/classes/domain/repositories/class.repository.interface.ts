@@ -9,6 +9,7 @@ export interface CreateClassData {
   classType: ClassType;
   status: ClassStatus;
   capacity: number;
+  color?: string | null;
 }
 
 export interface UpdateClassData {
@@ -17,6 +18,7 @@ export interface UpdateClassData {
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
+  color?: string | null;
 }
 
 export interface IClassRepository {

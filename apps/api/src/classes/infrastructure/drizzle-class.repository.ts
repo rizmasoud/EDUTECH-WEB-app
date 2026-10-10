@@ -33,6 +33,7 @@ export class DrizzleClassRepository implements IClassRepository {
       row.capacity,
       row.createdAt,
       row.updatedAt,
+      row.color ?? 'blue',
     );
   }
 
@@ -102,6 +103,7 @@ export class DrizzleClassRepository implements IClassRepository {
         classType: data.classType,
         status: data.status,
         capacity: data.capacity,
+        color: data.color ?? 'blue',
       })
       .returning();
 
@@ -127,6 +129,9 @@ export class DrizzleClassRepository implements IClassRepository {
     }
     if (updates.capacity !== undefined) {
       updateValues.capacity = updates.capacity;
+    }
+    if (updates.color !== undefined) {
+      updateValues.color = updates.color ?? 'blue';
     }
 
     const [row] = await this.db

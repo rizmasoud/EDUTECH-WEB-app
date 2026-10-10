@@ -11,6 +11,7 @@ import {
   time,
   date,
   timestamp,
+  varchar,
   check,
   unique,
   index,
@@ -45,6 +46,7 @@ export const classes = pgTable(
     classType: classTypeEnum('class_type').default('REGULAR').notNull(),
     status: classStatusEnum('status').default('DRAFT').notNull(),
     capacity: integer('capacity').default(12).notNull(),
+    color: varchar('color', { length: 50 }).default('blue'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .defaultNow()
       .notNull(),

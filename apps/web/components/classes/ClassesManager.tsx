@@ -27,7 +27,10 @@ import {
   Ban,
   Clock,
   ArrowRight,
+  Check,
+  Palette,
 } from 'lucide-react';
+import { PASTEL_COLORS, getPastelColor } from '../../lib/scheduling-utils';
 
 interface ClassesManagerProps {
   activeTerm: AcademicTerm | null;
@@ -69,6 +72,7 @@ export function ClassesManager({
   const [formClassName, setFormClassName] = useState('');
   const [formClassType, setFormClassType] = useState<'REGULAR' | 'PRIVATE'>('REGULAR');
   const [formCapacity, setFormCapacity] = useState(12);
+  const [formColor, setFormColor] = useState<string>('blue');
 
   // Book Segments state for selected Book
   const [availableSegments, setAvailableSegments] = useState<BookSegmentItem[]>([]);
@@ -141,6 +145,7 @@ export function ClassesManager({
     setFormClassName('');
     setFormClassType('REGULAR');
     setFormCapacity(12);
+    setFormColor('blue');
     setFormSegmentId('');
     setIsCreateModalOpen(true);
   };
@@ -153,6 +158,7 @@ export function ClassesManager({
     setFormClassName(classItem.className);
     setFormClassType(classItem.classType);
     setFormCapacity(classItem.capacity);
+    setFormColor(classItem.color || 'blue');
     setFormSegmentId(classItem.bookSegmentId || '');
     setIsCreateModalOpen(true);
   };
@@ -172,6 +178,7 @@ export function ClassesManager({
           bookSegmentId: formSegmentId || null,
           classType: formClassType,
           capacity: Number(formCapacity),
+          color: formColor,
         });
         setSuccessMsg(`Class "${editingClass.className}" updated successfully.`);
       } else {
@@ -183,6 +190,7 @@ export function ClassesManager({
           className: formClassName.trim() || undefined,
           classType: formClassType,
           capacity: Number(formCapacity),
+          color: formColor,
         });
         setSuccessMsg(`Class "${created.className}" created successfully.`);
       }
@@ -422,9 +430,19 @@ export function ClassesManager({
                   return (
                     <tr key={cls.id} className="hover:bg-slate-800/40 transition">
                       <td className="p-4">
-                        <div className="font-bold text-white text-sm">{cls.className}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {cls.classType === 'PRIVATE' ? 'Private 1-on-1' : 'Regular Group'}
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(cls.color).dotBg}`}
+                            title={`Color: ${getPastelColor(cls.color).name}`}
+                          />
+                          <div className="font-bold text-white text-sm">{cls.className}</div>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                          <span>{cls.classType === 'PRIVATE' ? 'Private 1-on-1' : 'Regular Group'}</span>
+                          <span className="text-[10px] text-slate-500">·</span>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            {getPastelColor(cls.color).name}
+                          </span>
                         </div>
                       </td>
                       <td className="p-4">
@@ -653,6 +671,50 @@ export function ClassesManager({
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
+              </div>
+
+              {/* Class Color Swatch Picker */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-300 font-semibold">
+                    Class Color
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {getPastelColor(formColor).name}
+                  </span>
+                </div>
+                <div
+                  role="radiogroup"
+                  aria-label="Class Color"
+                  className="grid grid-cols-5 gap-2 sm:grid-cols-10"
+                >
+                  {PASTEL_COLORS.map((color) => {
+                    const isSelected = formColor === color.id;
+                    return (
+                      <button
+                        key={color.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        aria-label={color.name}
+                        onClick={() => setFormColor(color.id)}
+                        className={`relative h-8 w-full rounded-md flex items-center justify-center transition-all focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                          isSelected
+                            ? 'ring-2 ring-white scale-105 shadow-md'
+                            : 'hover:scale-105 opacity-85 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: color.swatchHex }}
+                      >
+                        {isSelected && (
+                          <Check className="w-4 h-4 text-slate-900 drop-shadow-sm stroke-[3]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  This pastel color will be applied across all schedule slots for this class in the Weekly Timetable.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">

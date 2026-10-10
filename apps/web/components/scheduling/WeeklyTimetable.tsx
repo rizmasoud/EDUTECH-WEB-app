@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { WEEK_DAYS, formatTimeRange, getDayName } from '../../lib/scheduling-utils';
+import { WEEK_DAYS, formatTimeRange, getDayName, getPastelColor } from '../../lib/scheduling-utils';
 import { Clock, User, BookOpen, Edit2, Trash2, Users, Plus, AlertCircle } from 'lucide-react';
 
 interface WeeklyTimetableProps {
@@ -177,15 +177,16 @@ export function WeeklyTimetable({
                   ) : (
                     daySchedules.map((schedule) => {
                       const cls = classMap.get(schedule.classId);
+                      const colorDef = getPastelColor(cls?.color);
                       return (
                         <div
                           key={schedule.id}
-                          className="group relative rounded-md border border-slate-200 bg-white p-2.5 hover:border-indigo-300 hover:shadow-xs transition-all text-xs"
+                          className={`group relative rounded-md border ${colorDef.cardBorder} ${colorDef.hoverBorder} ${colorDef.cardBg} p-2.5 hover:shadow-xs transition-all text-xs`}
                         >
                           {/* Time tag */}
-                          <div className="flex items-center justify-between text-[11px] font-medium text-indigo-700 bg-indigo-50/70 px-1.5 py-0.5 rounded mb-1.5">
+                          <div className={`flex items-center justify-between text-[11px] font-medium ${colorDef.accentText} ${colorDef.accentBg} px-1.5 py-0.5 rounded mb-1.5`}>
                             <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-indigo-500" />
+                              <Clock className={`w-3 h-3 ${colorDef.accentIcon}`} />
                               <span>{formatTimeRange(schedule.startTime, schedule.endTime)}</span>
                             </span>
                             {cls?.classType === 'PRIVATE' && (
@@ -196,9 +197,15 @@ export function WeeklyTimetable({
                           </div>
 
                           {/* Class Name */}
-                          <h4 className="font-semibold text-slate-900 truncate" title={cls?.className}>
-                            {cls?.className || 'Unnamed Class'}
-                          </h4>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${colorDef.dotBg}`}
+                              title={`Class Color: ${colorDef.name}`}
+                            />
+                            <h4 className="font-semibold text-slate-900 truncate" title={cls?.className}>
+                              {cls?.className || 'Unnamed Class'}
+                            </h4>
+                          </div>
 
                           {/* Book info */}
                           {cls?.book && (

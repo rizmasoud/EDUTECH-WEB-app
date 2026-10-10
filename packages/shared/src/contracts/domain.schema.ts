@@ -59,6 +59,18 @@ export const TicketStatusSchema = z.nativeEnum(TicketStatus);
 export const ImportStatusSchema = z.nativeEnum(ImportStatus);
 export const ImportResultStatusSchema = z.nativeEnum(ImportResultStatus);
 export const NotificationTypeSchema = z.nativeEnum(NotificationType);
+export const PastelColorSchema = z.enum([
+  'blue',
+  'green',
+  'yellow',
+  'peach',
+  'pink',
+  'lavender',
+  'mint',
+  'cyan',
+  'coral',
+  'lilac',
+]);
 
 // ==========================================
 // Zod Entity Schemas
@@ -161,6 +173,7 @@ export const ClassSchema = z.object({
   classType: ClassTypeSchema,
   status: ClassStatusSchema,
   capacity: z.number().int().positive(),
+  color: PastelColorSchema.nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -509,6 +522,7 @@ export const CreateClassSchema = z.object({
     .min(1, 'capacity must be at least 1')
     .max(15, 'capacity must not exceed 15')
     .optional(),
+  color: PastelColorSchema.optional(),
 });
 
 export const UpdateClassSchema = z.object({
@@ -522,6 +536,7 @@ export const UpdateClassSchema = z.object({
     .min(1, 'capacity must be at least 1')
     .max(15, 'capacity must not exceed 15')
     .optional(),
+  color: PastelColorSchema.optional(),
 });
 
 export const CreateEnrollmentSchema = z.object({

@@ -8,6 +8,7 @@ export interface CreateClassInput {
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
+  color?: string | null;
 }
 
 export interface UpdateClassInput {
@@ -16,6 +17,7 @@ export interface UpdateClassInput {
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
+  color?: string | null;
 }
 
 export interface QueryClassesInput {
@@ -37,6 +39,7 @@ export interface ClassResponseDto {
   classType: ClassType;
   status: ClassStatus;
   capacity: number;
+  color: string;
   activeEnrollmentCount?: number;
   createdAt: Date;
   updatedAt: Date;

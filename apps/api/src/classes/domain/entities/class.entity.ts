@@ -1,9 +1,10 @@
-import type { ClassStatus, ClassType } from '@edutech/shared';
+import { type ClassStatus, type ClassType, PASTEL_COLOR_IDS, type PastelColorId } from '@edutech/shared';
 
 export class Class {
   public static readonly DEFAULT_CAPACITY = 12;
   public static readonly MAX_CAPACITY = 15;
   public static readonly MIN_CAPACITY = 1;
+  public static readonly DEFAULT_COLOR = 'blue';
 
   constructor(
     public readonly id: string,
@@ -16,6 +17,7 @@ export class Class {
     public readonly capacity: number,
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
+    public readonly color: string = 'blue',
   ) {}
 
   public static validateCapacity(capacity: number): void {
@@ -26,6 +28,16 @@ export class Class {
       throw new Error(
         `Class capacity must be between ${Class.MIN_CAPACITY} and ${Class.MAX_CAPACITY}`,
       );
+    }
+  }
+
+  public static validateColor(color?: string | null): void {
+    if (color !== undefined && color !== null) {
+      if (!PASTEL_COLOR_IDS.includes(color as PastelColorId)) {
+        throw new Error(
+          `Invalid class color "${color}". Allowed colors are: ${PASTEL_COLOR_IDS.join(', ')}`,
+        );
+      }
     }
   }
 

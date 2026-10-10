@@ -36,6 +36,21 @@ export const ClassStatus = {
 } as const;
 export type ClassStatus = (typeof ClassStatus)[keyof typeof ClassStatus];
 
+export const PASTEL_COLOR_IDS = [
+  'blue',
+  'green',
+  'yellow',
+  'peach',
+  'pink',
+  'lavender',
+  'mint',
+  'cyan',
+  'coral',
+  'lilac',
+] as const;
+export type PastelColorId = (typeof PASTEL_COLOR_IDS)[number];
+export const DEFAULT_CLASS_COLOR: PastelColorId = 'blue';
+
 export const EnrollmentStatus = {
   ACTIVE: 'ACTIVE',
   COMPLETED: 'COMPLETED',
@@ -305,6 +320,7 @@ export interface ClassEntity {
   classType: ClassType;
   status: ClassStatus;
   capacity: number;
+  color?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -676,6 +692,7 @@ export interface CreateClassDto {
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
+  color?: string | null;
 }
 
 export interface UpdateClassDto {
@@ -684,6 +701,7 @@ export interface UpdateClassDto {
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
+  color?: string | null;
 }
 
 export interface ClassResponseDto {
@@ -695,6 +713,7 @@ export interface ClassResponseDto {
   classType: ClassType;
   status: ClassStatus;
   capacity: number;
+  color?: string | null;
   activeEnrollmentCount?: number;
   createdAt: Date;
   updatedAt: Date;
