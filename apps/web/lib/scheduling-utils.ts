@@ -134,6 +134,11 @@ export interface PastelColorDefinition {
   accentIcon: string;
   badgeBg: string;
   dotBg: string;
+  /**
+   * Stronger treatment used only for Weekly Timetable blocks so neighbouring
+   * pastel colors stay distinguishable (tinted fill, clear border, deeper left accent).
+   */
+  blockClass: string;
 }
 
 export const PASTEL_COLORS: PastelColorDefinition[] = [
@@ -149,6 +154,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-sky-600',
     badgeBg: 'bg-sky-100 text-sky-800 border-sky-200',
     dotBg: 'bg-sky-400',
+    blockClass: 'bg-sky-100 border-sky-300 border-l-4 border-l-sky-500',
   },
   {
     id: 'green',
@@ -162,6 +168,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-green-600',
     badgeBg: 'bg-green-100 text-green-800 border-green-200',
     dotBg: 'bg-green-400',
+    blockClass: 'bg-green-100 border-green-300 border-l-4 border-l-green-500',
   },
   {
     id: 'yellow',
@@ -175,6 +182,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-amber-600',
     badgeBg: 'bg-amber-100 text-amber-800 border-amber-200',
     dotBg: 'bg-amber-400',
+    blockClass: 'bg-amber-100 border-amber-300 border-l-4 border-l-amber-500',
   },
   {
     id: 'peach',
@@ -188,6 +196,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-orange-600',
     badgeBg: 'bg-orange-100 text-orange-800 border-orange-200',
     dotBg: 'bg-orange-400',
+    blockClass: 'bg-orange-100 border-orange-300 border-l-4 border-l-orange-500',
   },
   {
     id: 'pink',
@@ -201,6 +210,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-pink-600',
     badgeBg: 'bg-pink-100 text-pink-800 border-pink-200',
     dotBg: 'bg-pink-400',
+    blockClass: 'bg-pink-100 border-pink-300 border-l-4 border-l-pink-500',
   },
   {
     id: 'lavender',
@@ -214,6 +224,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-violet-600',
     badgeBg: 'bg-violet-100 text-violet-800 border-violet-200',
     dotBg: 'bg-violet-400',
+    blockClass: 'bg-violet-100 border-violet-300 border-l-4 border-l-violet-500',
   },
   {
     id: 'mint',
@@ -227,6 +238,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-emerald-600',
     badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     dotBg: 'bg-emerald-400',
+    blockClass: 'bg-emerald-100 border-emerald-300 border-l-4 border-l-emerald-500',
   },
   {
     id: 'cyan',
@@ -240,6 +252,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-cyan-600',
     badgeBg: 'bg-cyan-100 text-cyan-800 border-cyan-200',
     dotBg: 'bg-cyan-400',
+    blockClass: 'bg-cyan-100 border-cyan-300 border-l-4 border-l-cyan-500',
   },
   {
     id: 'coral',
@@ -253,6 +266,7 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-rose-600',
     badgeBg: 'bg-rose-100 text-rose-800 border-rose-200',
     dotBg: 'bg-rose-400',
+    blockClass: 'bg-rose-100 border-rose-300 border-l-4 border-l-rose-500',
   },
   {
     id: 'lilac',
@@ -266,10 +280,25 @@ export const PASTEL_COLORS: PastelColorDefinition[] = [
     accentIcon: 'text-purple-600',
     badgeBg: 'bg-purple-100 text-purple-800 border-purple-200',
     dotBg: 'bg-purple-400',
+    blockClass: 'bg-purple-100 border-purple-300 border-l-4 border-l-purple-500',
   },
 ];
 
 export function getPastelColor(colorId?: string | null): PastelColorDefinition {
   const found = PASTEL_COLORS.find((c) => c.id === colorId);
   return found || PASTEL_COLORS[0];
+}
+
+/**
+ * Display label for a class. Uses the stored class name when one exists;
+ * only classes that were never given a name fall back to the generic label.
+ */
+export const UNNAMED_CLASS_LABEL = 'Unnamed Class';
+
+export function getClassDisplayName(
+  cls?: { className?: string | null } | null,
+  fallback: string = UNNAMED_CLASS_LABEL,
+): string {
+  const name = cls?.className?.trim();
+  return name ? name : fallback;
 }

@@ -34,6 +34,7 @@ export class DrizzleClassRepository implements IClassRepository {
       row.createdAt,
       row.updatedAt,
       row.color ?? 'blue',
+      row.name ?? null,
     );
   }
 
@@ -104,6 +105,7 @@ export class DrizzleClassRepository implements IClassRepository {
         status: data.status,
         capacity: data.capacity,
         color: data.color ?? 'blue',
+        name: data.name ?? null,
       })
       .returning();
 
@@ -132,6 +134,9 @@ export class DrizzleClassRepository implements IClassRepository {
     }
     if (updates.color !== undefined) {
       updateValues.color = updates.color ?? 'blue';
+    }
+    if (updates.name !== undefined) {
+      updateValues.name = updates.name;
     }
 
     const [row] = await this.db

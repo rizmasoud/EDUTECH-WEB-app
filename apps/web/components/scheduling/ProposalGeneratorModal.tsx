@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { AcademicTerm, ClassItem } from '../../lib/api-client';
 import { Sparkles, X, AlertTriangle, ShieldCheck, Check, Info } from 'lucide-react';
+import { getClassDisplayName } from '../../lib/scheduling-utils';
 
 interface ProposalGeneratorModalProps {
   isOpen: boolean;
@@ -154,7 +155,7 @@ export function ProposalGeneratorModal({
               </span>
               {selectedClasses.map((c) => (
                 <div key={c.id} className="text-xs text-slate-700 flex items-center justify-between">
-                  <span className="font-medium">{c.className}</span>
+                  <span className="font-medium">{getClassDisplayName(c)}</span>
                   <span className="text-slate-400 text-[10px]">
                     {c.book ? `${c.book.name} (${c.book.level})` : 'No book'}
                   </span>

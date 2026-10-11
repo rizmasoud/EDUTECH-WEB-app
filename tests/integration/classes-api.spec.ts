@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { NestFactory } from '@nestjs/core';
 import { Module } from '@nestjs/common';
@@ -474,5 +475,177 @@ describe('Classes & Enrollment API & Authorization Integration Tests', () => {
     const withdrawn = await withdrawRes.json();
     assert.equal(withdrawn.status, 'WITHDRAWN');
     assert.ok(withdrawn.leftAt);
+  });
+  describe('Class name creation, editing, and persistence', () => {
+    const authHeaders = () => ({
+      Authorization: `Bearer ${supervisorToken}`,
+      'Content-Type': 'application/json',
+    });
+
+    const createClass = (extra: Record<string, unknown> = {}) =>
+      fetch(`${baseUrl}/api/v1/classes`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          academicTermId: termId,
+          bookId: book1Id,
+          teacherId,
+          capacity: 10,
+          ...extra,
+        }),
+      });
+
+    it('9. SUPERVISOR can create a class with a name; it is trimmed, returned, and persists after reload', async () => {
+      const res = await createClass({ className: '  Touchstone 1 - A  ', color: 'mint' });
+      assert.equal(res.status, 201);
+      const created = await res.json();
+      assert.equal(created.className, 'Touchstone 1 - A');
+      assert.equal(created.color, 'mint');
+
+      const getRes = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+        headers: { Authorization: `Bearer ${supervisorToken}` },
+      });
+      assert.equal(getRes.status, 200);
+      assert.equal((await getRes.json()).className, 'Touchstone 1 - A');
+
+      const listRes = await fetch(`${baseUrl}/api/v1/classes?pageSize=100`, {
+        headers: { Authorization: `Bearer ${supervisorToken}` },
+      });
+      const list = await listRes.json();
+      const listed = list.items.find((c: any) => c.id === created.id);
+      assert.ok(listed, 'created class should appear in the class list');
+      assert.equal(listed.className, 'Touchstone 1 - A');
+
+      const [row] = await db.select().from(classes).where(eq(classes.id, created.id));
+      assert.equal(row.name, 'Touchstone 1 - A');
+    });
+
+    it('10. A class created without a name keeps a null name (no invented name)', async () => {
+      const res = await createClass();
+      assert.equal(res.status, 201);
+      const created = await res.json();
+      assert.equal(created.className, null);
+
+      const [row] = await db.select().from(classes).where(eq(classes.id, created.id));
+      assert.equal(row.name, null);
+    });
+
+    it('11. SUPERVISOR can rename a class; unrelated updates leave the name untouched; null clears it', async () => {
+      const created = await (await createClass({ className: 'Original Name', color: 'pink' })).json();
+
+      const renameRes = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ className: 'Renamed Section B' }),
+      });
+      assert.equal(renameRes.status, 200);
+      const renamed = await renameRes.json();
+      assert.equal(renamed.className, 'Renamed Section B');
+      assert.equal(renamed.color, 'pink', 'class color must be preserved');
+
+      const capacityRes = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ capacity: 9 }),
+      });
+      assert.equal(capacityRes.status, 200);
+      assert.equal((await capacityRes.json()).className, 'Renamed Section B');
+
+      const reload = await (
+        await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+          headers: { Authorization: `Bearer ${supervisorToken}` },
+        })
+      ).json();
+      assert.equal(reload.className, 'Renamed Section B');
+      assert.equal(reload.capacity, 9);
+
+      const clearRes = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ className: null }),
+      });
+      assert.equal(clearRes.status, 200);
+      assert.equal((await clearRes.json()).className, null);
+    });
+
+    it('12. Blank, whitespace-only, and over-long class names are rejected with 400 INVALID_INPUT', async () => {
+      for (const bad of ['', '   ', 'x'.repeat(129)]) {
+        const createRes = await createClass({ className: bad });
+        assert.equal(createRes.status, 400, `create should reject ${JSON.stringify(bad.slice(0, 10))}`);
+        assert.equal((await createRes.json()).error.code, 'INVALID_INPUT');
+      }
+
+      const created = await (await createClass({ className: 'Valid Name' })).json();
+      for (const bad of ['', '   ', 'y'.repeat(129)]) {
+        const patchRes = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+          method: 'PATCH',
+          headers: authHeaders(),
+          body: JSON.stringify({ className: bad }),
+        });
+        assert.equal(patchRes.status, 400, `patch should reject ${JSON.stringify(bad.slice(0, 10))}`);
+        assert.equal((await patchRes.json()).error.code, 'INVALID_INPUT');
+      }
+
+      const reload = await (
+        await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+          headers: { Authorization: `Bearer ${supervisorToken}` },
+        })
+      ).json();
+      assert.equal(reload.className, 'Valid Name', 'rejected updates must not change the stored name');
+    });
+
+    it('13. Existing classes without a stored name stay readable and editable (backward compatible)', async () => {
+      const [legacy] = await db
+        .insert(classes)
+        .values({
+          academicTermId: termId,
+          bookId: book1Id,
+          teacherId,
+          classType: 'REGULAR',
+          status: 'DRAFT',
+          capacity: 8,
+          color: 'lavender',
+        })
+        .returning();
+
+      const getRes = await fetch(`${baseUrl}/api/v1/classes/${legacy.id}`, {
+        headers: { Authorization: `Bearer ${supervisorToken}` },
+      });
+      assert.equal(getRes.status, 200);
+      const body = await getRes.json();
+      assert.equal(body.className, null);
+      assert.equal(body.color, 'lavender');
+      assert.equal(body.capacity, 8);
+
+      const patchRes = await fetch(`${baseUrl}/api/v1/classes/${legacy.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ className: 'Now Named' }),
+      });
+      assert.equal(patchRes.status, 200);
+      const patched = await patchRes.json();
+      assert.equal(patched.className, 'Now Named');
+      assert.equal(patched.color, 'lavender');
+    });
+
+    it('14. TEACHER role cannot rename a class (403 FORBIDDEN)', async () => {
+      const created = await (await createClass({ className: 'Protected Name' })).json();
+      const res = await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${teacherToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ className: 'Hijacked' }),
+      });
+      assert.equal(res.status, 403);
+
+      const reload = await (
+        await fetch(`${baseUrl}/api/v1/classes/${created.id}`, {
+          headers: { Authorization: `Bearer ${supervisorToken}` },
+        })
+      ).json();
+      assert.equal(reload.className, 'Protected Name');
+    });
   });
 });

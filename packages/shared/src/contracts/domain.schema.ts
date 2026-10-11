@@ -170,6 +170,7 @@ export const ClassSchema = z.object({
   bookId: z.string().uuid(),
   bookSegmentId: z.string().uuid().nullable(),
   teacherId: z.string().uuid().nullable(),
+  className: z.string().nullable().optional(),
   classType: ClassTypeSchema,
   status: ClassStatusSchema,
   capacity: z.number().int().positive(),
@@ -509,11 +510,18 @@ export const UpdateBookSegmentSchema = z.object({
   sequenceOrder: z.number().int().nonnegative().optional(),
 });
 
+export const ClassNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'className must not be empty')
+  .max(128, 'className must not exceed 128 characters');
+
 export const CreateClassSchema = z.object({
   academicTermId: z.string().uuid('academicTermId must be a valid UUID'),
   bookId: z.string().uuid('bookId must be a valid UUID'),
   bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
   teacherId: z.string().uuid('teacherId must be a valid UUID').nullable().optional(),
+  className: ClassNameSchema.nullable().optional(),
   classType: ClassTypeSchema.optional(),
   status: ClassStatusSchema.optional(),
   capacity: z
@@ -528,6 +536,8 @@ export const CreateClassSchema = z.object({
 export const UpdateClassSchema = z.object({
   bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
   teacherId: z.string().uuid('teacherId must be a valid UUID').nullable().optional(),
+  // null explicitly clears the name; undefined leaves the stored name untouched.
+  className: ClassNameSchema.nullable().optional(),
   classType: ClassTypeSchema.optional(),
   status: ClassStatusSchema.optional(),
   capacity: z

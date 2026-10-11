@@ -4,7 +4,7 @@ import React from 'react';
 import type { ClassItem, Schedule, UserAccount } from '../../lib/api-client';
 import { WeeklyTimetable } from './WeeklyTimetable';
 import { User, BookOpen, Clock, Users, Shield, Calendar, CheckCircle2 } from 'lucide-react';
-import { formatTimeRange, getDayName } from '../../lib/scheduling-utils';
+import { formatTimeRange, getDayName, getClassDisplayName } from '../../lib/scheduling-utils';
 
 interface TeacherScheduleViewProps {
   user: UserAccount | null;
@@ -77,7 +77,7 @@ export function TeacherScheduleView({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h4 className="font-semibold text-slate-900">{cls.className}</h4>
+                      <h4 className="font-semibold text-slate-900">{getClassDisplayName(cls)}</h4>
                       {cls.book && (
                         <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
                           <BookOpen className="w-3 h-3 text-slate-400" />

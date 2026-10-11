@@ -100,7 +100,7 @@ export interface ClassItem {
   bookId: string;
   bookSegmentId: string | null;
   teacherId: string | null;
-  className: string;
+  className: string | null;
   classType: 'REGULAR' | 'PRIVATE';
   status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   capacity: number;
@@ -143,7 +143,7 @@ export interface EnrollmentItem {
   };
   class?: {
     id: string;
-    className: string;
+    className: string | null;
   };
 }
 
@@ -545,7 +545,7 @@ class ApiClient {
     bookId: string;
     bookSegmentId?: string | null;
     teacherId?: string | null;
-    className?: string;
+    className?: string | null;
     classType?: 'REGULAR' | 'PRIVATE';
     status?: 'DRAFT' | 'ACTIVE';
     capacity?: number;
@@ -562,6 +562,7 @@ class ApiClient {
     data: {
       bookSegmentId?: string | null;
       teacherId?: string | null;
+      className?: string | null;
       classType?: 'REGULAR' | 'PRIVATE';
       status?: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
       capacity?: number;

@@ -8,6 +8,7 @@ import {
   StudentItem,
 } from '../../lib/api-client';
 import { formatPersianDate } from '../../../../lib/utils';
+import { getClassDisplayName } from '../../lib/scheduling-utils';
 import {
   Users,
   Plus,
@@ -142,7 +143,7 @@ export function ClassEnrollmentsModal({
             <div className="flex items-center gap-2">
               <Users className="h-5 w-5 text-indigo-400" />
               <h3 className="text-base font-bold text-white">
-                Class Roster: {classItem.className}
+                Class Roster: {getClassDisplayName(classItem)}
               </h3>
             </div>
             <p className="text-xs text-slate-400 mt-1">

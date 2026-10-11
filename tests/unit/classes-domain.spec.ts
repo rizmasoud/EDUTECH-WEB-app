@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Class } from '../../apps/api/src/classes/domain/entities/class.entity';
 import { Enrollment } from '../../apps/api/src/classes/domain/entities/enrollment.entity';
+import { CreateClassSchema, UpdateClassSchema } from '@edutech/shared';
 
 describe('Classes & Enrollment Domain Entities & Rules', () => {
   describe('Class Domain Entity', () => {
@@ -136,6 +137,48 @@ describe('Classes & Enrollment Domain Entities & Rules', () => {
       assert.equal(withdrawnEnrollment.isTerminated(), true);
       assert.equal(withdrawnEnrollment.canTransitionTo('ACTIVE'), false);
       assert.equal(withdrawnEnrollment.canTransitionTo('COMPLETED'), false);
+    });
+  });
+  describe('Class name validation contract', () => {
+    const base = {
+      academicTermId: '11111111-1111-4111-8111-111111111111',
+      bookId: '22222222-2222-4222-8222-222222222222',
+    };
+
+    it('Class entity defaults to a null name for legacy rows', () => {
+      const now = new Date();
+      const legacy = new Class('c1', 't1', 'b1', null, null, 'REGULAR', 'DRAFT', 10, now, now);
+      assert.equal(legacy.name, null);
+      const named = new Class('c2', 't1', 'b1', null, null, 'REGULAR', 'DRAFT', 10, now, now, 'blue', 'Section A');
+      assert.equal(named.name, 'Section A');
+    });
+
+    it('CreateClassSchema accepts a missing, null, or valid name and trims it', () => {
+      assert.equal(CreateClassSchema.safeParse(base).success, true);
+      assert.equal(CreateClassSchema.safeParse({ ...base, className: null }).success, true);
+      const parsed = CreateClassSchema.safeParse({ ...base, className: '  Touchstone 1 - A  ' });
+      assert.equal(parsed.success, true);
+      if (parsed.success) assert.equal(parsed.data.className, 'Touchstone 1 - A');
+    });
+
+    it('CreateClassSchema rejects empty, whitespace-only, and over-128-character names', () => {
+      for (const bad of ['', '   ', 'a'.repeat(129)]) {
+        assert.equal(CreateClassSchema.safeParse({ ...base, className: bad }).success, false);
+      }
+      assert.equal(CreateClassSchema.safeParse({ ...base, className: 'a'.repeat(128) }).success, true);
+    });
+
+    it('UpdateClassSchema distinguishes "leave unchanged" (omitted) from "clear" (null) and validates names', () => {
+      const omitted = UpdateClassSchema.safeParse({ capacity: 9 });
+      assert.equal(omitted.success, true);
+      if (omitted.success) assert.equal(omitted.data.className, undefined);
+
+      const cleared = UpdateClassSchema.safeParse({ className: null });
+      assert.equal(cleared.success, true);
+      if (cleared.success) assert.equal(cleared.data.className, null);
+
+      assert.equal(UpdateClassSchema.safeParse({ className: '  ' }).success, false);
+      assert.equal(UpdateClassSchema.safeParse({ className: 'b'.repeat(129) }).success, false);
     });
   });
 });

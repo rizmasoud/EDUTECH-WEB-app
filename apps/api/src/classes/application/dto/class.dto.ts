@@ -5,6 +5,7 @@ export interface CreateClassInput {
   bookId: string;
   bookSegmentId?: string | null;
   teacherId?: string | null;
+  className?: string | null;
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
@@ -14,6 +15,7 @@ export interface CreateClassInput {
 export interface UpdateClassInput {
   bookSegmentId?: string | null;
   teacherId?: string | null;
+  className?: string | null;
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;
@@ -36,6 +38,7 @@ export interface ClassResponseDto {
   bookId: string;
   bookSegmentId: string | null;
   teacherId: string | null;
+  className: string | null;
   classType: ClassType;
   status: ClassStatus;
   capacity: number;

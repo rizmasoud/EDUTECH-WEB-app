@@ -2,7 +2,12 @@
 
 import React, { useState } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { getDayShortName, formatTimeRange, getPastelColor } from '../../lib/scheduling-utils';
+import {
+  getDayShortName,
+  formatTimeRange,
+  getPastelColor,
+  getClassDisplayName,
+} from '../../lib/scheduling-utils';
 import {
   Calendar,
   Clock,
@@ -65,7 +70,7 @@ export function ClassesOverview({
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchName = cls.className.toLowerCase().includes(q);
+      const matchName = (cls.className || '').toLowerCase().includes(q);
       const matchBook = cls.book?.name.toLowerCase().includes(q);
       const matchTeacher =
         cls.teacher &&
@@ -226,7 +231,7 @@ export function ClassesOverview({
                           className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(cls.color).dotBg}`}
                           title={`Class Color: ${getPastelColor(cls.color).name}`}
                         />
-                        <span>{cls.className}</span>
+                        <span>{getClassDisplayName(cls)}</span>
                         {cls.classType === 'PRIVATE' && (
                           <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1 rounded font-normal">
                             Private

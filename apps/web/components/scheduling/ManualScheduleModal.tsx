@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { WEEK_DAYS, getDayShortName, getPastelColor } from '../../lib/scheduling-utils';
+import { WEEK_DAYS, getDayShortName, getPastelColor, getClassDisplayName } from '../../lib/scheduling-utils';
 import {
   Calendar,
   X,
@@ -444,7 +444,7 @@ function ManualScheduleDialogContent({
                     title={`Class Color: ${getPastelColor(currentClass?.color).name}`}
                   />
                   <span className="font-bold text-slate-900">
-                    {currentClass?.className || 'Selected Class'}
+                    {getClassDisplayName(currentClass, 'Selected Class')}
                   </span>
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${getPastelColor(currentClass?.color).badgeBg}`}
@@ -477,7 +477,7 @@ function ManualScheduleDialogContent({
             >
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.className} {c.teacher ? `(${c.teacher.firstName} ${c.teacher.lastName})` : '(No teacher)'}
+                  {getClassDisplayName(c)} {c.teacher ? `(${c.teacher.firstName} ${c.teacher.lastName})` : '(No teacher)'}
                 </option>
               ))}
             </select>
