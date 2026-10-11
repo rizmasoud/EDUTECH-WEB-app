@@ -11,6 +11,8 @@ import { ClassesOverview } from '../../apps/web/components/scheduling/ClassesOve
 import { ProposalReviewPanel } from '../../apps/web/components/scheduling/ProposalReviewPanel';
 import { TeacherScheduleView } from '../../apps/web/components/scheduling/TeacherScheduleView';
 import { ProposalGeneratorModal } from '../../apps/web/components/scheduling/ProposalGeneratorModal';
+import { WeeklyTimetable } from '../../apps/web/components/scheduling/WeeklyTimetable';
+import { getClassDisplayName, getPastelColor, PASTEL_COLORS } from '../../apps/web/lib/scheduling-utils';
 import type { ClassItem, Schedule, SchedulingProposal, UserAccount, AcademicTerm } from '../../apps/web/lib/api-client';
 
 describe('Phase 5 Frontend Workflow Components', () => {
@@ -246,6 +248,78 @@ describe('Phase 5 Frontend Workflow Components', () => {
         html.includes('Proposal Data Unavailable'),
         'Should render defensive error state instead of crashing'
       );
+    });
+  });
+  describe('Class names and timetable color clarity', () => {
+    const namedBlue: ClassItem = { ...mockClass, id: 'class-blue', className: 'Touchstone 1 - A', color: 'blue' };
+    const unnamedGreen: ClassItem = { ...mockClass, id: 'class-green', className: null, color: 'green' };
+    const schedFor = (id: string, classId: string, day: number): Schedule => ({
+      id,
+      classId,
+      dayOfWeek: day,
+      startTime: '08:30',
+      endTime: '10:00',
+      startsOn: null,
+      endsOn: null,
+    });
+
+    it('getClassDisplayName returns the stored name and only falls back when none exists', () => {
+      assert.equal(getClassDisplayName({ className: 'Touchstone 1 - A' }), 'Touchstone 1 - A');
+      assert.equal(getClassDisplayName({ className: '  Padded  ' }), 'Padded');
+      assert.equal(getClassDisplayName({ className: null }), 'Unnamed Class');
+      assert.equal(getClassDisplayName({ className: '   ' }), 'Unnamed Class');
+      assert.equal(getClassDisplayName(undefined), 'Unnamed Class');
+      assert.equal(getClassDisplayName(null, 'Class'), 'Class');
+    });
+
+    it('WeeklyTimetable shows the real class name and no longer labels named classes "Unnamed Class"', () => {
+      const html = renderToString(
+        React.createElement(WeeklyTimetable, {
+          classes: [namedBlue],
+          schedules: [schedFor('s1', 'class-blue', 6), schedFor('s2', 'class-blue', 1)],
+          isSupervisor: false,
+        })
+      );
+      assert.ok(html.includes('Touchstone 1 - A'));
+      assert.ok(!html.includes('Unnamed Class'));
+    });
+
+    it('WeeklyTimetable only falls back to "Unnamed Class" for classes that have no stored name', () => {
+      const html = renderToString(
+        React.createElement(WeeklyTimetable, {
+          classes: [unnamedGreen],
+          schedules: [schedFor('s1', 'class-green', 6)],
+          isSupervisor: false,
+        })
+      );
+      assert.ok(html.includes('Unnamed Class'));
+    });
+
+    it('every slot of a class gets the same strengthened block treatment (tint, border, left accent)', () => {
+      const html = renderToString(
+        React.createElement(WeeklyTimetable, {
+          classes: [namedBlue],
+          schedules: [schedFor('s1', 'class-blue', 6), schedFor('s2', 'class-blue', 1), schedFor('s3', 'class-blue', 3)],
+          isSupervisor: false,
+        })
+      );
+      const blockClass = getPastelColor('blue').blockClass;
+      const occurrences = html.split(blockClass).length - 1;
+      assert.equal(occurrences, 3, 'each of the 3 slots should carry the block color classes');
+    });
+
+    it('timetable block styles are defined for every palette color and keep the stored ids and swatches', () => {
+      assert.deepEqual(
+        PASTEL_COLORS.map((c) => c.id),
+        ['blue', 'green', 'yellow', 'peach', 'pink', 'lavender', 'mint', 'cyan', 'coral', 'lilac']
+      );
+      const blockClasses = new Set<string>();
+      for (const color of PASTEL_COLORS) {
+        assert.ok(color.blockClass.includes('border-l-4'), `${color.id} needs a left accent bar`);
+        assert.ok(/\bborder-[a-z]+-300\b/.test(color.blockClass), `${color.id} needs a clear border`);
+        blockClasses.add(color.blockClass);
+      }
+      assert.equal(blockClasses.size, PASTEL_COLORS.length, 'each color must produce a distinct block style');
     });
   });
 });

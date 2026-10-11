@@ -10,11 +10,13 @@ export interface CreateClassData {
   status: ClassStatus;
   capacity: number;
   color?: string | null;
+  name?: string | null;
 }
 
 export interface UpdateClassData {
   bookSegmentId?: string | null;
   teacherId?: string | null;
+  name?: string | null;
   classType?: ClassType;
   status?: ClassStatus;
   capacity?: number;

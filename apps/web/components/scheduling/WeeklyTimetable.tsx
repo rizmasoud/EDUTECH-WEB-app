@@ -2,7 +2,13 @@
 
 import React, { useState } from 'react';
 import type { ClassItem, Schedule } from '../../lib/api-client';
-import { WEEK_DAYS, formatTimeRange, getDayName, getPastelColor } from '../../lib/scheduling-utils';
+import {
+  WEEK_DAYS,
+  formatTimeRange,
+  getDayName,
+  getPastelColor,
+  getClassDisplayName,
+} from '../../lib/scheduling-utils';
 import { Clock, User, BookOpen, Edit2, Trash2, Users, Plus, AlertCircle } from 'lucide-react';
 
 interface WeeklyTimetableProps {
@@ -181,10 +187,10 @@ export function WeeklyTimetable({
                       return (
                         <div
                           key={schedule.id}
-                          className={`group relative rounded-md border ${colorDef.cardBorder} ${colorDef.hoverBorder} ${colorDef.cardBg} p-2.5 hover:shadow-xs transition-all text-xs`}
+                          className={`group relative rounded-md border ${colorDef.blockClass} p-2.5 shadow-2xs hover:shadow-sm transition-all text-xs`}
                         >
                           {/* Time tag */}
-                          <div className={`flex items-center justify-between text-[11px] font-medium ${colorDef.accentText} ${colorDef.accentBg} px-1.5 py-0.5 rounded mb-1.5`}>
+                          <div className={`flex items-center justify-between text-[11px] font-medium ${colorDef.accentText} bg-white/70 px-1.5 py-0.5 rounded mb-1.5`}>
                             <span className="flex items-center gap-1">
                               <Clock className={`w-3 h-3 ${colorDef.accentIcon}`} />
                               <span>{formatTimeRange(schedule.startTime, schedule.endTime)}</span>
@@ -202,21 +208,21 @@ export function WeeklyTimetable({
                               className={`w-2 h-2 rounded-full shrink-0 ${colorDef.dotBg}`}
                               title={`Class Color: ${colorDef.name}`}
                             />
-                            <h4 className="font-semibold text-slate-900 truncate" title={cls?.className}>
-                              {cls?.className || 'Unnamed Class'}
+                            <h4 className="font-semibold text-slate-900 truncate" title={getClassDisplayName(cls)}>
+                              {getClassDisplayName(cls)}
                             </h4>
                           </div>
 
                           {/* Book info */}
                           {cls?.book && (
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1 truncate">
+                            <div className="flex items-center gap-1 text-[10px] text-slate-600 mt-1 truncate">
                               <BookOpen className="w-3 h-3 shrink-0 text-slate-400" />
                               <span className="truncate">{cls.book.name} ({cls.book.level})</span>
                             </div>
                           )}
 
                           {/* Teacher */}
-                          <div className="flex items-center gap-1 text-[10px] text-slate-600 mt-1 truncate">
+                          <div className="flex items-center gap-1 text-[10px] text-slate-700 mt-1 truncate">
                             <User className="w-3 h-3 shrink-0 text-slate-400" />
                             <span className="truncate">
                               {cls?.teacher
@@ -227,7 +233,7 @@ export function WeeklyTimetable({
 
                           {/* Capacity / Enrolled */}
                           {cls && (
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1">
+                            <div className="flex items-center gap-1 text-[10px] text-slate-600 mt-1">
                               <Users className="w-3 h-3 shrink-0 text-slate-400" />
                               <span>
                                 {cls.enrolledCount ?? 0} / {cls.capacity} students
@@ -237,7 +243,7 @@ export function WeeklyTimetable({
 
                           {/* Supervisor Action Buttons */}
                           {isSupervisor && (
-                            <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="mt-2 pt-1.5 border-t border-slate-900/10 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               {onEditSchedule && (
                                 <button
                                   type="button"

@@ -37,6 +37,7 @@ export class ClassesService {
       bookId: cls.bookId,
       bookSegmentId: cls.bookSegmentId,
       teacherId: cls.teacherId,
+      className: cls.name,
       classType: cls.classType,
       status: cls.status,
       capacity: cls.capacity,
@@ -138,6 +139,7 @@ export class ClassesService {
       status,
       capacity,
       color: data.color ?? 'blue',
+      name: data.className ?? null,
     });
 
     return this.mapToDto(created, 0);
@@ -296,6 +298,7 @@ export class ClassesService {
       status: data.status as ClassStatus | undefined,
       capacity: data.capacity,
       color: data.color,
+      name: data.className,
     });
 
     const activeCount = await this.classRepo.countActiveEnrollments(id);

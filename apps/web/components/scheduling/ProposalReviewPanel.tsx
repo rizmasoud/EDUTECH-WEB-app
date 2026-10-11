@@ -10,6 +10,7 @@ import {
   getConflictInfo,
   STATUS_STYLES,
   getPastelColor,
+  getClassDisplayName,
 } from '../../lib/scheduling-utils';
 import {
   CheckCircle2,
@@ -301,7 +302,7 @@ export function ProposalReviewPanel({
                       title={`Class Color: ${getPastelColor(cls?.color).name}`}
                     />
                     <h3 className="text-xs font-semibold text-slate-900">
-                      {cls?.className || `Class ID: ${proposed.classId.slice(0, 8)}`}
+                      {getClassDisplayName(cls, `Class ID: ${proposed.classId.slice(0, 8)}`)}
                     </h3>
                     <span
                       className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.2 rounded ${

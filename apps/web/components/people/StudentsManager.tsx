@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient, StudentItem, EnrollmentItem } from '../../lib/api-client';
 import { formatPersianDate } from '../../../../lib/utils';
+import { getClassDisplayName } from '../../lib/scheduling-utils';
 import {
   Users,
   Search,
@@ -444,7 +445,7 @@ export function StudentsManager({ isSupervisor = true }: StudentsManagerProps) {
                       <div>
                         <div className="font-semibold text-white flex items-center gap-2">
                           <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
-                          <span>{enr.class?.className || `Class ID: ${enr.classId.substring(0, 8)}...`}</span>
+                          <span>{getClassDisplayName(enr.class, `Class ID: ${enr.classId.substring(0, 8)}...`)}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
                           Enrolled on {formatPersianDate(enr.joinedAt)}

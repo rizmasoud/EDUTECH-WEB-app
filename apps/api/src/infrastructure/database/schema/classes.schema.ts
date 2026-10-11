@@ -43,6 +43,8 @@ export const classes = pgTable(
     teacherId: uuid('teacher_id').references(() => teachers.id, {
       onDelete: 'set null',
     }),
+    // Optional supervisor-entered display name. Nullable so existing classes stay valid.
+    name: varchar('name', { length: 128 }),
     classType: classTypeEnum('class_type').default('REGULAR').notNull(),
     status: classStatusEnum('status').default('DRAFT').notNull(),
     capacity: integer('capacity').default(12).notNull(),

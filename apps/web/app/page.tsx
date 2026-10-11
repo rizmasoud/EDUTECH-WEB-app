@@ -22,6 +22,7 @@ import { BooksManager } from '../components/academic/BooksManager';
 import { StudentsManager } from '../components/people/StudentsManager';
 import { TeachersManager } from '../components/people/TeachersManager';
 import { ClassesManager } from '../components/classes/ClassesManager';
+import { getClassDisplayName } from '../lib/scheduling-utils';
 import {
   Calendar,
   Layers,
@@ -431,7 +432,7 @@ export default function SchedulingAppPage() {
       const targetCls = classes.find((c) => c.id === params.classId);
       showNotification(
         'success',
-        `Weekly schedule for "${targetCls?.className || 'Class'}" saved (${params.sessions.length} session${params.sessions.length > 1 ? 's' : ''}/week).`
+        `Weekly schedule for "${getClassDisplayName(targetCls, 'Class')}" saved (${params.sessions.length} session${params.sessions.length > 1 ? 's' : ''}/week).`
       );
       await refreshData();
     } catch (err: any) {
@@ -449,7 +450,7 @@ export default function SchedulingAppPage() {
     const targetCls = classes.find((c) => c.id === classId);
     if (
       !confirm(
-        `Are you sure you want to remove all ${existingForClass.length} schedule slot(s) for "${targetCls?.className || 'this class'}"?`
+        `Are you sure you want to remove all ${existingForClass.length} schedule slot(s) for "${getClassDisplayName(targetCls, 'this class')}"?`
       )
     ) {
       return;
@@ -461,7 +462,7 @@ export default function SchedulingAppPage() {
       }
       showNotification(
         'success',
-        `All schedule slots removed for "${targetCls?.className || 'Class'}".`
+        `All schedule slots removed for "${getClassDisplayName(targetCls, 'Class')}".`
       );
       await refreshData();
     } catch (err: any) {

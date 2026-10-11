@@ -30,7 +30,7 @@ import {
   Check,
   Palette,
 } from 'lucide-react';
-import { PASTEL_COLORS, getPastelColor } from '../../lib/scheduling-utils';
+import { PASTEL_COLORS, getPastelColor, getClassDisplayName } from '../../lib/scheduling-utils';
 
 interface ClassesManagerProps {
   activeTerm: AcademicTerm | null;
@@ -155,7 +155,7 @@ export function ClassesManager({
     setFormTermId(classItem.academicTermId);
     setFormBookId(classItem.bookId);
     setFormTeacherId(classItem.teacherId || '');
-    setFormClassName(classItem.className);
+    setFormClassName(classItem.className || '');
     setFormClassType(classItem.classType);
     setFormCapacity(classItem.capacity);
     setFormColor(classItem.color || 'blue');
@@ -173,14 +173,15 @@ export function ClassesManager({
     setError(null);
     try {
       if (editingClass) {
-        await apiClient.updateClass(editingClass.id, {
+        const updated = await apiClient.updateClass(editingClass.id, {
           teacherId: formTeacherId || null,
+          className: formClassName.trim() || null,
           bookSegmentId: formSegmentId || null,
           classType: formClassType,
           capacity: Number(formCapacity),
           color: formColor,
         });
-        setSuccessMsg(`Class "${editingClass.className}" updated successfully.`);
+        setSuccessMsg(`Class "${getClassDisplayName(updated)}" updated successfully.`);
       } else {
         const created = await apiClient.createClass({
           academicTermId: formTermId,
@@ -192,7 +193,7 @@ export function ClassesManager({
           capacity: Number(formCapacity),
           color: formColor,
         });
-        setSuccessMsg(`Class "${created.className}" created successfully.`);
+        setSuccessMsg(`Class "${getClassDisplayName(created)}" created successfully.`);
       }
       setIsCreateModalOpen(false);
       fetchClassesAndMetadata();
@@ -208,7 +209,7 @@ export function ClassesManager({
     setError(null);
     try {
       await apiClient.activateClass(classItem.id);
-      setSuccessMsg(`Class "${classItem.className}" is now ACTIVE.`);
+      setSuccessMsg(`Class "${getClassDisplayName(classItem)}" is now ACTIVE.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
       setError(err.message || 'Failed to activate class');
@@ -218,12 +219,12 @@ export function ClassesManager({
   };
 
   const handleComplete = async (classItem: ClassItem) => {
-    if (!confirm(`Mark class "${classItem.className}" as COMPLETED?`)) return;
+    if (!confirm(`Mark class "${getClassDisplayName(classItem)}" as COMPLETED?`)) return;
     setActionLoading(true);
     setError(null);
     try {
       await apiClient.completeClass(classItem.id);
-      setSuccessMsg(`Class "${classItem.className}" marked as COMPLETED.`);
+      setSuccessMsg(`Class "${getClassDisplayName(classItem)}" marked as COMPLETED.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
       setError(err.message || 'Failed to complete class');
@@ -233,12 +234,12 @@ export function ClassesManager({
   };
 
   const handleCancel = async (classItem: ClassItem) => {
-    if (!confirm(`Are you sure you want to CANCEL class "${classItem.className}"?`)) return;
+    if (!confirm(`Are you sure you want to CANCEL class "${getClassDisplayName(classItem)}"?`)) return;
     setActionLoading(true);
     setError(null);
     try {
       await apiClient.cancelClass(classItem.id);
-      setSuccessMsg(`Class "${classItem.className}" has been CANCELLED.`);
+      setSuccessMsg(`Class "${getClassDisplayName(classItem)}" has been CANCELLED.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
       setError(err.message || 'Failed to cancel class');
@@ -432,17 +433,15 @@ export function ClassesManager({
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${getPastelColor(cls.color).dotBg}`}
+                            role="img"
+                            aria-label={`Class color: ${getPastelColor(cls.color).name}`}
+                            className={`w-3 h-3 rounded-full shrink-0 ring-1 ring-white/30 ${getPastelColor(cls.color).dotBg}`}
                             title={`Color: ${getPastelColor(cls.color).name}`}
                           />
-                          <div className="font-bold text-white text-sm">{cls.className}</div>
+                          <div className="font-bold text-white text-sm">{getClassDisplayName(cls)}</div>
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
                           <span>{cls.classType === 'PRIVATE' ? 'Private 1-on-1' : 'Regular Group'}</span>
-                          <span className="text-[10px] text-slate-500">·</span>
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            {getPastelColor(cls.color).name}
-                          </span>
                         </div>
                       </td>
                       <td className="p-4">
@@ -633,18 +632,20 @@ export function ClassesManager({
                 </select>
               </div>
 
-              {!editingClass && (
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Class Section Custom Name</label>
-                  <input
-                    type="text"
-                    value={formClassName}
-                    onChange={(e) => setFormClassName(e.target.value)}
-                    placeholder="Auto-generated if empty (e.g. Touchstone 1 - A)"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              )}
+              <div>
+                <label htmlFor="class-name-input" className="block text-slate-300 font-semibold mb-1">
+                  Class Name
+                </label>
+                <input
+                  id="class-name-input"
+                  type="text"
+                  value={formClassName}
+                  maxLength={128}
+                  onChange={(e) => setFormClassName(e.target.value)}
+                  placeholder="e.g. Touchstone 1 - A"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

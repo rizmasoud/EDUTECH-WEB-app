@@ -18,6 +18,7 @@ export class Class {
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
     public readonly color: string = 'blue',
+    public readonly name: string | null = null,
   ) {}
 
   public static validateCapacity(capacity: number): void {
