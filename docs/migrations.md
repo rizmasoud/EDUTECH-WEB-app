@@ -109,11 +109,49 @@ pnpm db:status --json
 - It reports `state`: `empty`, `tracked` (Drizzle history present) or `untracked-existing-schema` (tables exist but no history, e.g. a database built by the old SQL replay). The last one is flagged as **not safe to migrate**: running the Drizzle migrator there would try to re-create existing tables.
 - It also mirrors the installed migrator's skip rule (`last created_at < when`) and flags migrations that are pending but would be skipped, or applied but would re-run, plus applied hashes unknown to the repository.
 
-`db:status` is the dry-run for migrations: there is no command in the repository that applies migrations to PostgreSQL yet.
+`db:status` is the dry-run for migrations: there is no command in the repository that applies migrations to PostgreSQL yet. Use `db:baseline` (below) to record history for an existing untracked database.
+
+## `pnpm db:baseline` (dry run by default)
+
+For a database that has the application tables but **no Drizzle history** (for example one built by the old SQL replay). A baseline is a *claim* about existing state, so it is only recorded when that claim can be proven.
+
+```
+pnpm db:baseline --pglite-dir <dir>                         # dry run, read-only
+DATABASE_DRIVER=postgres DATABASE_URL=... pnpm db:baseline  # dry run, read-only
+pnpm db:baseline <target> --confirm-baseline [--target <tag>]   # the ONLY writing mode
+```
+
+- **Explicit target only.** PostgreSQL needs `DATABASE_DRIVER=postgres` itself (legacy inference from `DATABASE_URL` is rejected); PGlite needs `--pglite-dir` pointing at an existing directory (never created). There is no fallback driver, and it never runs at application startup.
+- **Exit codes:** `0` allowed/recorded, `1` refused, `2` usage or connection error.
+
+### How equivalence is proven
+1. `validateMetadata` (the `db:check` rules) must pass for the repository; metadata is never repaired here.
+2. The repository SQL is replayed one migration at a time in a fresh **in-memory** PGlite. After each migration the `public` schema catalog is fingerprinted: relations, columns (type, nullability, default, identity/generated), constraints (`pg_get_constraintdef`), indexes (`pg_indexes`), enum labels in order, triggers and function signatures.
+3. The target database is fingerprinted the same way. It must be **identical** to exactly one of those 11 states. The baseline then records that many migrations and leaves the rest pending, so a database that is only at 0005 is baselined at 0005, not at 0010.
+4. If the schema equals the state after several migrations (a schema-neutral migration), it is refused as ambiguous unless you pass `--target <tag>` naming one of the matching migrations.
+
+### Refusal conditions (nothing is written)
+Repository metadata invalid · database empty · any Drizzle migration history already present (no "merge" path) · unknown applied hashes · schema matches no migration state (the report lists the differences against the closest state) · ambiguous match without a valid `--target` · `--target` that contradicts the schema · an existing `drizzle.__drizzle_migrations` with unexpected columns · post-write verification not exactly as planned.
+
+### What `--confirm-baseline` writes
+Only the migration history, in a **single transaction**:
+1. takes `pg_advisory_xact_lock` (serialises baseline attempts), then **repeats every check inside the transaction**;
+2. `CREATE SCHEMA IF NOT EXISTS drizzle` and `CREATE TABLE drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`, the installed migrator's DDL without `IF NOT EXISTS`, so a concurrent creator makes it fail instead of being merged (an existing *empty* table with the right columns is reused);
+3. one row per recorded migration: `hash` = sha256 of the SQL file and `created_at` = the journal `when`, exactly what the installed Drizzle migrator stores;
+4. re-reads the status inside the transaction and rolls back unless exactly the planned migrations are applied, the rest are pending, and the migrator would run exactly those.
+
+Application tables and data are never modified. A crash or error rolls the whole transaction back, so there is never partial history.
+
+### Limits and recovery
+- **Schema equality is not data equality.** Data-only migrations cannot be verified; the tool proves structure only.
+- Catalog text (`pg_get_constraintdef`, `pg_get_indexdef`) can differ between PostgreSQL major versions; a false mismatch fails closed (refusal), never a false match.
+- Only the `public` schema and migrations table are examined; objects elsewhere are not compared.
+- The advisory lock stops two baseline runs, but does not block other sessions running DDL concurrently; run it in a quiet window.
+- **Back up first.** To undo a baseline: `DROP TABLE drizzle.__drizzle_migrations` (and the `drizzle` schema if empty); nothing else was touched.
+- Real PostgreSQL has not been exercised by the automated tests (only PGlite); try the dry run on a restored copy first.
 
 ## Not covered here (follow-ups)
 
-- A migration **runner** that applies pending migrations to PostgreSQL (with confirmation) and a **baseline** operation for databases built by the old replay. Baseline must be a separate, explicitly confirmed command with validation and a dry-run; it was intentionally not implemented.
+- A general migration **runner** that applies pending migrations to PostgreSQL (with confirmation).
 - Replacing `PGLITE_AUTO_MIGRATE` replay with the tracked migrator, and the test helper (`tests/helpers/migration-helper.ts`, unchanged).
-- Untracking `.pglite-storage` from git (unchanged in this step) and a CI job that applies migrations to a throwaway Postgres.
-- `db:status` against a real PostgreSQL was not exercised in tests (no database is contacted by the test suite); only the PGlite reader is tested.
+- Untracking `.pglite-storage` from git and a CI job that applies migrations to a throwaway Postgres.
