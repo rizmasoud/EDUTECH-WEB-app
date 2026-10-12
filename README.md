@@ -153,6 +153,7 @@ Configuration is cleanly decoupled from source code:
    cp .env.example .env
    ```
 2. Key environment variables:
+   * `DATABASE_DRIVER`: `postgres` (or `pglite` for the embedded dev database; see `docs/migrations.md`)
    * `DATABASE_URL`: PostgreSQL connection string (`postgresql://edutech_user:edutech_password@localhost:5432/edutech_db`)
    * `NODE_ENV`: Runtime environment (`development`, `production`, `test`)
    * `API_PORT`: Backend port (default `4000`)
