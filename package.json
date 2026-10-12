@@ -11,6 +11,7 @@
     "test": "tsx --tsconfig apps/api/tsconfig.json --test tests/unit/*.spec.ts tests/integration/*.spec.ts",
     "test:coverage": "tsx --tsconfig apps/api/tsconfig.json --test --experimental-test-coverage tests/unit/*.spec.ts tests/integration/*.spec.ts",
     "lint": "eslint .",
+    "db:check": "tsx --tsconfig apps/api/tsconfig.json scripts/db-check.ts",
     "clean": "next clean"
   },
   "dependencies": {
