@@ -52,7 +52,7 @@ The installed Drizzle PG migrator applies a migration only if `last_applied.crea
 
 ## `pnpm db:check`
 
-Deterministic and offline. It never connects to a database and never reads `DATABASE_URL`. It verifies:
+Offline: it never connects to a database and never reads `DATABASE_URL`. Its results are reproducible when the repository state, installed dependencies and the relevant clock value are held constant. It is not clock-independent: the check that `when` timestamps are not in the future compares them with the current system time, so it can fail if the system clock is set earlier than a journal timestamp. It verifies:
 
 - every journal tag maps to an existing SQL file, and every SQL file appears exactly once;
 - `idx` values are contiguous, tags are `NNNN_name` with prefix == idx;
