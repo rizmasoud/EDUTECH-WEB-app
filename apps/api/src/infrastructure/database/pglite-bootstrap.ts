@@ -5,71 +5,118 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { eq } from 'drizzle-orm';
 import * as schema from './schema';
 import { ScryptPasswordHasher } from '../../auth/infrastructure/scrypt-password-hasher';
+import { parseBooleanFlag } from './driver-selection';
+
+/**
+ * Embedded PGlite bootstrap (development / preview only).
+ *
+ * Safety guarantees:
+ *  - Nothing is applied or seeded unless explicitly enabled
+ *    (PGLITE_AUTO_MIGRATE=true / PGLITE_SEED_DEMO=true).
+ *  - Storage is NEVER deleted or reset, whatever a query returns.
+ *  - If the schema is not present the function fails with a clear message.
+ */
+export interface PGliteBootstrapOptions {
+  /** Filesystem directory, or "memory://" for an in-memory database. */
+  dataDir: string;
+  /** Replay every SQL file in migrationsDir (legacy, untracked, dev-only). */
+  autoMigrate: boolean;
+  /** Insert demo accounts/data when the accounts table is empty. */
+  seedDemo: boolean;
+  migrationsDir: string;
+}
+
+export const MEMORY_DATA_DIR = 'memory://';
+
+export function readPGliteOptionsFromEnv(
+  env: Record<string, string | undefined>,
+  cwd: string = process.cwd(),
+): PGliteBootstrapOptions {
+  const raw = env.PGLITE_DATA_DIR?.trim();
+  const dataDir =
+    !raw ? path.resolve(cwd, '.pglite-storage') : raw.toLowerCase() === 'memory' ? MEMORY_DATA_DIR : path.resolve(cwd, raw);
+  return {
+    dataDir,
+    autoMigrate: parseBooleanFlag('PGLITE_AUTO_MIGRATE', env.PGLITE_AUTO_MIGRATE),
+    seedDemo: parseBooleanFlag('PGLITE_SEED_DEMO', env.PGLITE_SEED_DEMO),
+    migrationsDir: path.resolve(cwd, 'apps/api/drizzle'),
+  };
+}
+
+async function replayMigrations(pg: PGlite, migrationsDir: string): Promise<void> {
+  if (!fs.existsSync(migrationsDir)) {
+    throw new Error(`PGLITE_AUTO_MIGRATE=true but migrations directory not found: ${migrationsDir}`);
+  }
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const file of files) {
+    const sqlContent = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+    try {
+      await pg.exec(sqlContent);
+    } catch (err: any) {
+      if (!err.message?.includes('already exists')) {
+        console.warn(`Migration notice for ${file}:`, err.message);
+      }
+    }
+  }
+}
+
+async function hasAccountsTable(pg: PGlite): Promise<boolean> {
+  const res = await pg.query<{ present: boolean }>(`select to_regclass('public.accounts') is not null as present`);
+  return Boolean(res.rows[0]?.present);
+}
+
+/**
+ * Open a PGlite database according to explicit options. Never deletes storage.
+ * The caller owns the returned `pg` handle (call pg.close() when done, e.g. in tests).
+ */
+export async function openPGliteDatabase(
+  options: PGliteBootstrapOptions,
+): Promise<{ db: any; pg: PGlite }> {
+  const pg = new PGlite(options.dataDir);
+  try {
+    await pg.waitReady;
+    if (options.autoMigrate) {
+      console.warn(
+        'PGLITE_AUTO_MIGRATE=true: replaying all SQL migrations without tracking (development only).',
+      );
+      await replayMigrations(pg, options.migrationsDir);
+    }
+
+    if (!(await hasAccountsTable(pg))) {
+      throw new Error(
+        'PGlite database has no schema (table "accounts" is missing). Nothing was applied or reset. ' +
+          'To create the schema in a development database set PGLITE_AUTO_MIGRATE=true explicitly; ' +
+          'see docs/migrations.md.',
+      );
+    }
+
+    const db = drizzle(pg, { schema });
+
+    if (options.seedDemo) {
+      const existing = await db.select().from(schema.accounts).limit(1);
+      if (existing.length === 0) {
+        await seedDemoData(db);
+      }
+    }
+    return { db, pg };
+  } catch (err) {
+    try {
+      await pg.close();
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+}
 
 let cachedDb: any = null;
 
 export async function getPGliteDatabase(): Promise<any> {
   if (cachedDb) return cachedDb;
-
-  const storageDir = path.resolve(process.cwd(), '.pglite-storage');
-  
-  async function initDb(resetStorage = false): Promise<any> {
-    if (resetStorage && fs.existsSync(storageDir)) {
-      try {
-        fs.rmSync(storageDir, { recursive: true, force: true });
-      } catch (e) {
-        console.warn('Failed to remove pglite storage:', e);
-      }
-    }
-
-    const pg = new PGlite(storageDir);
-
-    // Apply migrations
-    const drizzleDir = path.resolve(process.cwd(), 'apps/api/drizzle');
-    if (fs.existsSync(drizzleDir)) {
-      const migrationFiles = fs
-        .readdirSync(drizzleDir)
-        .filter((f) => f.endsWith('.sql'))
-        .sort();
-
-      for (const file of migrationFiles) {
-        const sqlContent = fs.readFileSync(path.join(drizzleDir, file), 'utf-8');
-        try {
-          await pg.exec(sqlContent);
-        } catch (err: any) {
-          if (!err.message?.includes('already exists')) {
-            console.warn(`Migration notice for ${file}:`, err.message);
-          }
-        }
-      }
-    }
-
-    const db = drizzle(pg, { schema });
-    return db;
-  }
-
-  let db = await initDb(false);
-
-  // Seed demo data if accounts table is empty or missing
-  try {
-    const existingAccounts = await db.select().from(schema.accounts).limit(1);
-    if (existingAccounts.length === 0) {
-      await seedDemoData(db);
-    }
-  } catch (err: any) {
-    console.warn('Database accounts check failed, re-initializing PGlite storage & running migrations:', err?.message);
-    db = await initDb(true);
-    try {
-      const existingAccounts = await db.select().from(schema.accounts).limit(1);
-      if (existingAccounts.length === 0) {
-        await seedDemoData(db);
-      }
-    } catch (seedErr: any) {
-      console.error('Failed to seed demo data after PGlite reset:', seedErr);
-      throw seedErr;
-    }
-  }
-
+  const { db } = await openPGliteDatabase(readPGliteOptionsFromEnv(process.env));
   cachedDb = db;
   return db;
 }

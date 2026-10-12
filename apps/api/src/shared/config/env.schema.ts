@@ -7,9 +7,11 @@ export const envSchema = z.object({
     .default('4000')
     .transform((val) => parseInt(val, 10)),
   API_PREFIX: z.string().optional().default(''),
-  DATABASE_URL: z
-    .string()
-    .default('postgresql://edutech_user:edutech_password@localhost:5432/edutech_db'),
+  // No default on purpose: a silent default URL used to hide misconfiguration
+  // (the provider fell back to PGlite when it could not connect). The driver is
+  // chosen explicitly; see infrastructure/database/driver-selection.ts.
+  DATABASE_DRIVER: z.enum(['postgres', 'pglite']).optional(),
+  DATABASE_URL: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
