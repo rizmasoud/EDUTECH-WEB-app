@@ -41,7 +41,42 @@
       "idx": 5,
       "version": "7",
       "when": 1790805010340,
-      "tag": "0005_fine_siren",
+      "tag": "0005_cynical_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791099122000,
+      "tag": "0006_class_sessions_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791099122001,
+      "tag": "0007_teacher_attendance_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791099122002,
+      "tag": "0008_payrolls_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791611461000,
+      "tag": "0009_class_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791690111000,
+      "tag": "0010_class_name",
       "breakpoints": true
     }
   ]
