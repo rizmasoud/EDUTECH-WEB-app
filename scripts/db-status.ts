@@ -30,7 +30,11 @@ function parseArgs(argv: string[]) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') out.json = true;
-    else if (a === '--pglite-dir') out.pgliteDir = argv[++i];
+    else if (a === '--pglite-dir') {
+      const v = argv[++i];
+      if (!v || v.startsWith('--')) throw new Error('--pglite-dir needs a path');
+      out.pgliteDir = v;
+    }
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (out.pgliteDir !== undefined && !out.pgliteDir) throw new Error('--pglite-dir needs a path');

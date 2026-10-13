@@ -109,11 +109,64 @@ pnpm db:status --json
 - It reports `state`: `empty`, `tracked` (Drizzle history present) or `untracked-existing-schema` (tables exist but no history, e.g. a database built by the old SQL replay). The last one is flagged as **not safe to migrate**: running the Drizzle migrator there would try to re-create existing tables.
 - It also mirrors the installed migrator's skip rule (`last created_at < when`) and flags migrations that are pending but would be skipped, or applied but would re-run, plus applied hashes unknown to the repository.
 
-`db:status` is the dry-run for migrations: there is no command in the repository that applies migrations to PostgreSQL yet.
+`db:status` is the dry-run for migrations: there is no command in the repository that applies migrations to PostgreSQL yet. Use `db:baseline` (below) to record history for an existing untracked database.
+
+## `pnpm db:baseline` (dry run by default)
+
+For a database that has the application tables but **no Drizzle history** (for example one built by the old SQL replay). A baseline is a *claim* about existing state, so it is only recorded when that claim can be proven.
+
+```
+pnpm db:baseline --pglite-dir <dir>                         # dry run, read-only
+DATABASE_DRIVER=postgres DATABASE_URL=... pnpm db:baseline  # dry run, read-only
+pnpm db:baseline <target> --confirm-baseline [--target <tag>]   # the ONLY writing mode
+```
+
+- **Explicit target only.** PostgreSQL needs `DATABASE_DRIVER=postgres` itself (legacy inference from `DATABASE_URL` is rejected); PGlite needs `--pglite-dir` pointing at an existing directory (never created). There is no fallback driver, and it never runs at application startup.
+- **Exit codes:** `0` allowed/recorded, `1` refused, `2` usage or connection error.
+
+### How equivalence is proven
+1. `validateMetadata` (the `db:check` rules) must pass for the repository; metadata is never repaired here.
+2. The repository SQL is replayed one migration at a time in a fresh **in-memory** PGlite. After each migration the `public` schema catalog is fingerprinted: relations, columns (type, nullability, default, identity/generated), constraints (`pg_get_constraintdef`, all kinds except PostgreSQL 18's separate NOT NULL rows, see below), indexes (`pg_indexes`), enum labels in order, triggers and function signatures.
+3. The target database is fingerprinted the same way. It must be **identical** to exactly one of those 11 states. The baseline then records that many migrations and leaves the rest pending, so a database that is only at 0005 is baselined at 0005, not at 0010.
+4. If the schema equals the state after several migrations (a schema-neutral migration), it is refused as ambiguous unless you pass `--target <tag>` naming one of the matching migrations.
+
+### Refusal conditions (nothing is written)
+Repository metadata invalid · database empty · any Drizzle migration history already present (no "merge" path) · unknown applied hashes · schema matches no migration state (the report lists the differences against the closest state) · ambiguous match without a valid `--target` · `--target` that contradicts the schema · an existing `drizzle.__drizzle_migrations` whose structure differs from the migrator's (column names/types, nullability, defaults, primary key, triggers, non-plain table) or that has rows · post-write verification not exactly as planned.
+
+### What `--confirm-baseline` writes
+Only the migration history, in a **single transaction**:
+1. takes `pg_advisory_xact_lock` (serialises baseline attempts), then **repeats every check inside the transaction**;
+2. `CREATE SCHEMA IF NOT EXISTS drizzle` and `CREATE TABLE drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`, the installed migrator's DDL without `IF NOT EXISTS`, so a concurrent creator makes it fail instead of being merged (an existing *empty* table with the right columns is reused);
+3. one row per recorded migration: `hash` = sha256 of the SQL file and `created_at` = the journal `when`, exactly what the installed Drizzle migrator stores;
+4. re-reads the status inside the transaction and rolls back unless exactly the planned migrations are applied, the rest are pending, and the migrator would run exactly those.
+
+Application tables and data are never modified. A crash or error rolls the whole transaction back, so there is never partial history.
+
+### What is guaranteed, what is not
+
+**Confirmed behaviour (covered by tests)**
+- Nullability is compared once, through `pg_attribute.attnotnull`. PostgreSQL 18 additionally stores NOT NULL as `pg_constraint` rows (`contype = 'n'`, generated names) while 16/17 do not; those rows are excluded so that version difference no longer changes the fingerprint. Primary keys, foreign keys, unique and check constraints are still compared; tests show that dropping a NOT NULL, primary key, foreign key, unique or check constraint is refused (PGlite). Exclusion constraints (`contype = 'x'`) are covered by the same query: an *extra* one is refused (PGlite test); no exclusion constraint exists in the repository SQL and none was tested on a real server.
+- The expectation is computed by PGlite, whose server reports PostgreSQL 18, and the fingerprint of a real **PostgreSQL 16** database (the CI service, `postgres:16-alpine`) built from the same SQL is identical to it, so the dry run accepts it. This is exercised by `tests/integration/db-baseline-postgres.spec.ts` (see below). **PostgreSQL 17 has not been tested**, and neither has a real PostgreSQL 18 server; their compatibility is inferred from the query, not demonstrated.
+- An existing `drizzle.__drizzle_migrations` is reused only if it is an empty, plain table with exactly `id integer NOT NULL DEFAULT nextval(own sequence)`, `hash text NOT NULL`, `created_at bigint` (no default), a `PRIMARY KEY (id)` and no user triggers. Anything else is refused **by the dry run and by `--confirm-baseline`** (the same check), before anything is inserted. A valid empty table is reused by both.
+
+**Known limitations (not compared; a difference here does NOT prevent a match)**
+Objects outside `public` · privileges and ownership · row-level-security flags and policies · view definitions (only a view's name and columns) · function bodies (only name and argument types) · inheritance and partitioning · table persistence (unlogged) · column collations · index validity (an invalid index with the same definition matches) · disabled triggers (only the definition is compared) · sequence settings (only the sequence's existence) · domain and composite types · extensions · comments · column order · storage parameters. That these do not prevent a match was confirmed by probes for objects outside `public`, comments, an RLS flag and column order; for the others it follows from the fingerprint queries but was not probed. The repository SQL defines none of these, so any *extra* table, column, index, constraint, enum, trigger, view or function in `public` is refused; the risk is a database that differs only in one of the attributes above. Review those by hand before baselining. Catalog text that differs between PostgreSQL versions fails closed (a refusal), but that is a separate matter from the omissions listed here, which can match.
+
+**Unverified risks**
+- Only PostgreSQL 16 (a real server, one disposable cluster) and PGlite (PostgreSQL 18 engine) have been tested; PostgreSQL 17 has not. Other versions, managed services, extensions installed in `public`, unusual `search_path` or role settings (these can print type names differently and cause a refusal), and low-privilege roles (`information_schema` only shows tables the role can access, which can cause a refusal) are untested.
+- Schema equality is not data equality: data-only migrations cannot be verified.
+- The advisory lock serialises baseline runs. It does not block other sessions' DDL, so another session could change the schema between validation and commit. Run it in a quiet window.
+- A pooler in transaction mode (e.g. PgBouncer) has not been tested.
+
+### Integration test (real PostgreSQL)
+`tests/integration/db-baseline-postgres.spec.ts` runs only when the dedicated variable `EDUTECH_TEST_PG_ADMIN_URL` is set; otherwise it is skipped. `DATABASE_URL` is never used to connect (it is only compared with the admin URL), and the test refuses to run if both are identical, if the host is not loopback (a tunnel or port-forward to a remote server also looks like loopback, so this is not proof the server is disposable), or in production. Each scenario creates a uniquely named database; all of them are dropped by the test file's `after` cleanup hook, which attempts every drop even if one fails and does not throw a secondary error when setup failed early (a process crash could still leave a database behind; the CI service is disposable). In CI it points at the disposable `postgres:16-alpine` service. To run it locally, start your own throwaway server and export the variable; never point it at a database you care about.
+
+### Recovery
+- **Back up first.** To undo a baseline: `DROP TABLE drizzle.__drizzle_migrations` (and the `drizzle` schema if it is empty); nothing else was touched.
+- Run the dry run on a restored copy before baselining anything that matters.
 
 ## Not covered here (follow-ups)
 
-- A migration **runner** that applies pending migrations to PostgreSQL (with confirmation) and a **baseline** operation for databases built by the old replay. Baseline must be a separate, explicitly confirmed command with validation and a dry-run; it was intentionally not implemented.
+- A general migration **runner** that applies pending migrations to PostgreSQL (with confirmation).
 - Replacing `PGLITE_AUTO_MIGRATE` replay with the tracked migrator, and the test helper (`tests/helpers/migration-helper.ts`, unchanged).
-- Untracking `.pglite-storage` from git (unchanged in this step) and a CI job that applies migrations to a throwaway Postgres.
-- `db:status` against a real PostgreSQL was not exercised in tests (no database is contacted by the test suite); only the PGlite reader is tested.
+- Untracking `.pglite-storage` from git and a CI job that applies migrations to a throwaway Postgres.
