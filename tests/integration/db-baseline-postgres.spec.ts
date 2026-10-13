@@ -3,8 +3,8 @@
  *
  * SAFE BY CONSTRUCTION
  *  - Runs ONLY when EDUTECH_TEST_PG_ADMIN_URL is set (a dedicated variable for a DISPOSABLE server,
- *    e.g. the PostgreSQL service in CI). DATABASE_URL is never read or used; if the two are identical
- *    the test refuses to run.
+ *    e.g. the PostgreSQL service in CI). DATABASE_URL is read only to compare it with the admin URL
+ *    (the test refuses to run if the two are identical); it is never used to open a connection.
  *  - The admin URL must point at a loopback host and is never printed.
  *  - Every scenario runs in a freshly created, uniquely named database that is dropped in `finally`.
  *    No pre-existing database on the server is connected to for anything but CREATE/DROP DATABASE.
