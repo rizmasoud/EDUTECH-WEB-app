@@ -464,3 +464,118 @@ describe('CLI guards and isolation', () => {
     assert.equal(r.stdout.trim(), '');
   });
 });
+
+describe('fingerprint: NOT NULL is version-independent, other constraints stay compared', () => {
+  it('never contains PostgreSQL-18-style NOT NULL constraint rows, but still compares nullability', async () => {
+    const pg = new PGlite();
+    try {
+      await rawReplay(pg, 11);
+      const fp = await withPGliteReader(pg, (r) => introspectSchema(r));
+      const types = new Set(
+        Object.entries(fp)
+          .filter(([k]) => k.startsWith('constraint|'))
+          .map(([, v]) => v.split('|')[0]),
+      );
+      assert.ok(!types.has('n'), 'contype n must not be fingerprinted');
+      for (const t of ['p', 'f', 'u', 'c']) assert.ok(types.has(t), `constraint type ${t} must still be fingerprinted`);
+      // nullability is carried by the column entries
+      assert.ok(Object.entries(fp).some(([k, v]) => k.startsWith('column|accounts|') && v.split('|')[1] === 'true'));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it('a database lacking the PG18 NOT NULL rows (as on PostgreSQL 16/17) fingerprints identically', async () => {
+    const pg = new PGlite();
+    try {
+      await rawReplay(pg, 11);
+      const withN = await withPGliteReader(pg, (r) => introspectSchema(r));
+      // Simulate PG16/17 by removing every row the version difference could add or remove.
+      const without = Object.fromEntries(Object.entries(withN).filter(([k, v]) => !(k.startsWith('constraint|') && v.startsWith('n|'))));
+      assert.equal(fingerprintHash(without), fingerprintHash(withN));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  for (const [name, ddl] of [
+    ['dropped NOT NULL', 'alter table classes alter column capacity drop not null'],
+    ['dropped primary key', 'alter table class_sessions drop constraint class_sessions_pkey cascade'],
+    ['dropped foreign key', 'alter table class_sessions drop constraint class_sessions_class_id_classes_id_fk'],
+    ['dropped unique constraint', 'alter table class_sessions drop constraint class_sessions_class_schedule_date_unique'],
+    ['weakened check constraint', 'alter table classes drop constraint classes_capacity_check; alter table classes add constraint classes_capacity_check check (capacity > 0)'],
+  ] as const) {
+    it(`still refuses: ${name}`, async () => {
+      const pg = new PGlite();
+      try {
+        await rawReplay(pg, 11);
+        await pg.exec(ddl);
+        const p = await plan(pg);
+        assert.equal(p.ok, false, name);
+      } finally {
+        await pg.close();
+      }
+    });
+  }
+});
+
+describe('existing tracking table: structural validation before any insert', () => {
+  const MIGRATOR_DDL = 'create schema drizzle; create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)';
+
+  it('accepts a table identical to what the Drizzle migrator creates (and reuses it)', async () => {
+    const pg = new PGlite();
+    try {
+      await rawReplay(pg, 11);
+      await pg.exec(MIGRATOR_DDL);
+      await applyBaseline(pgliteExecutor(pg), realDir, { confirm: true });
+      assert.equal((await historyState(pg)).rows, 11);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  for (const [name, ddl, re] of [
+    ['created_at text', 'create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at text)', /created_at has type text/],
+    ['hash varchar', 'create table drizzle.__drizzle_migrations (id serial primary key, hash varchar(64) not null, created_at bigint)', /hash has type character varying/],
+    ['hash nullable', 'create table drizzle.__drizzle_migrations (id serial primary key, hash text, created_at bigint)', /hash must be NOT NULL/],
+    ['id bigint', 'create table drizzle.__drizzle_migrations (id bigserial primary key, hash text not null, created_at bigint)', /id has type bigint/],
+    ['id without serial default', 'create table drizzle.__drizzle_migrations (id integer primary key, hash text not null, created_at bigint)', /id default/],
+    ['no primary key', 'create table drizzle.__drizzle_migrations (id serial, hash text not null, created_at bigint)', /PRIMARY KEY/],
+    ['extra column', 'create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint, extra int)', /columns are/],
+    ['created_at with default', 'create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint default 0)', /created_at must have no default/],
+    ['partitioned table', 'create table drizzle.__drizzle_migrations (id integer, hash text not null, created_at bigint) partition by range (id)', /plain/],
+  ] as const) {
+    it(`refuses before inserting: ${name}`, async () => {
+      const pg = new PGlite();
+      try {
+        await rawReplay(pg, 11);
+        await pg.exec(`create schema drizzle; ${ddl}`);
+        const before = JSON.stringify((await introspectSchema_(pg)));
+        await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), (e: unknown) => {
+          assert.ok(e instanceof BaselineRefusedError);
+          assert.match((e as Error).message, re);
+          return true;
+        });
+        assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 0);
+        assert.equal(JSON.stringify(await introspectSchema_(pg)), before, 'application schema unchanged');
+      } finally {
+        await pg.close();
+      }
+    });
+  }
+
+  it('refuses a table that already contains rows (existing history is never merged)', async () => {
+    const pg = new PGlite();
+    try {
+      await rawReplay(pg, 11);
+      await pg.exec(MIGRATOR_DDL);
+      await pg.exec(`insert into drizzle.__drizzle_migrations (hash, created_at) values ('abc', 1)`);
+      await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), BaselineRefusedError);
+      assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 1);
+    } finally {
+      await pg.close();
+    }
+  });
+});
+
+const introspectSchema_ = (pg: PGlite) => withPGliteReader(pg, (r) => introspectSchema(r));

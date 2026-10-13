@@ -62,5 +62,8 @@ jobs:
         run: pnpm test
         env:
           DATABASE_URL: postgresql://edutech_user:edutech_password@localhost:5432/edutech_db
+          # Dedicated variable for the DISPOSABLE postgres service above. Enables the real-PostgreSQL
+          # baseline integration test, which creates and drops its own uniquely named databases.
+          EDUTECH_TEST_PG_ADMIN_URL: postgresql://edutech_user:edutech_password@localhost:5432/postgres
           NODE_ENV: test
           API_PORT: 4000

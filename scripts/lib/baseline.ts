@@ -56,12 +56,16 @@ const INTROSPECTION: { kind: string; sql: string; key: string[]; value: string[]
     value: ['type', 'notnull', 'def', 'identity', 'generated'],
   },
   {
+    // PostgreSQL 18 stores NOT NULL as pg_constraint rows (contype 'n', generated names), 16/17 do not.
+    // Nullability is compared once, version-independently, through pg_attribute.attnotnull in the
+    // column query. Every other constraint kind (p, f, u, c, x, t) is still compared.
     kind: 'constraint',
     sql: `select c.relname as rel, k.conname as name, k.contype::text as type,
                  pg_get_constraintdef(k.oid) as def
           from pg_constraint k join pg_class c on c.oid = k.conrelid
           join pg_namespace n on n.oid = c.relnamespace
-          where n.nspname = 'public'`,
+          where n.nspname = 'public'
+            and k.contype <> 'n'`,
     key: ['rel', 'name'],
     value: ['type', 'def'],
   },
@@ -335,6 +339,77 @@ export class BaselineRefusedError extends Error {
   }
 }
 
+/**
+ * Structural check of an EXISTING drizzle.__drizzle_migrations table against what the installed
+ * Drizzle migrator creates: `id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint`.
+ * Returns human-readable problems (empty = compatible). Read-only.
+ */
+export async function trackingTableShapeProblems(reader: SqlReader): Promise<string[]> {
+  const problems: string[] = [];
+  const rel = await reader.select(
+    `select c.relkind::text as kind, c.relispartition::text as ispart, c.relhassubclass::text as hassub
+       from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'drizzle' and c.relname = '__drizzle_migrations'`,
+  );
+  if (rel.length !== 1 || rel[0].kind !== 'r' || rel[0].ispart !== 'false' || rel[0].hassub !== 'false') {
+    problems.push('it is not a plain (non-partitioned, non-inherited) table');
+  }
+
+  const cols = await reader.select(
+    `select a.attname as name, format_type(a.atttypid, a.atttypmod) as type, a.attnotnull::text as notnull,
+            coalesce(pg_get_expr(d.adbin, d.adrelid), '') as def, a.attidentity::text as identity,
+            a.attgenerated::text as generated
+       from pg_attribute a
+       join pg_class c on c.oid = a.attrelid
+       join pg_namespace n on n.oid = c.relnamespace
+       left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+      where n.nspname = 'drizzle' and c.relname = '__drizzle_migrations'
+        and a.attnum > 0 and not a.attisdropped
+      order by a.attname`,
+  );
+  const byName = new Map(cols.map((c) => [String(c.name), c]));
+  const names = [...byName.keys()].sort().join(',');
+  if (names !== 'created_at,hash,id') problems.push(`columns are (${names}), expected (created_at,hash,id)`);
+  const id = byName.get('id');
+  const hash = byName.get('hash');
+  const created = byName.get('created_at');
+  if (id) {
+    if (id.type !== 'integer') problems.push(`id has type ${id.type}, expected integer`);
+    if (id.notnull !== 'true') problems.push('id must be NOT NULL');
+    if (!/^nextval\('("?drizzle"?\.)?"?__drizzle_migrations_id_seq"?'::regclass\)$/.test(String(id.def))) {
+      problems.push(`id default is "${id.def}", expected the serial sequence of this table`);
+    }
+    if (id.identity !== '' || id.generated !== '') problems.push('id must not be identity/generated');
+  }
+  if (hash) {
+    if (hash.type !== 'text') problems.push(`hash has type ${hash.type}, expected text`);
+    if (hash.notnull !== 'true') problems.push('hash must be NOT NULL');
+    if (hash.def !== '' || hash.generated !== '') problems.push('hash must have no default/generation');
+  }
+  if (created) {
+    if (created.type !== 'bigint') problems.push(`created_at has type ${created.type}, expected bigint`);
+    if (created.def !== '' || created.generated !== '') problems.push('created_at must have no default/generation');
+  }
+
+  const pk = await reader.select(
+    `select pg_get_constraintdef(k.oid) as def
+       from pg_constraint k join pg_class c on c.oid = k.conrelid join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'drizzle' and c.relname = '__drizzle_migrations' and k.contype = 'p'`,
+  );
+  if (pk.length !== 1 || String(pk[0].def) !== 'PRIMARY KEY (id)') problems.push('PRIMARY KEY (id) is missing');
+
+  const trig = await reader.select(
+    `select count(*)::int as n from pg_trigger g join pg_class c on c.oid = g.tgrelid
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'drizzle' and c.relname = '__drizzle_migrations' and not g.tgisinternal`,
+  );
+  if (Number(trig[0]?.n ?? 0) !== 0) problems.push('it has user triggers');
+
+  const rows = await reader.select('select count(*)::int as n from "drizzle"."__drizzle_migrations"');
+  if (Number(rows[0]?.n ?? 0) !== 0) problems.push('it already contains rows');
+  return problems;
+}
+
 /** Constant key so two baseline attempts can never run concurrently. */
 const ADVISORY_LOCK_KEY = 7364201;
 
@@ -359,15 +434,16 @@ export async function applyBaseline(
     const plan = await planBaseline(tx, migrationsDir, options);
     if (!plan.ok) throw new BaselineRefusedError(`Baseline refused: ${plan.refusals.join(' ')}`, plan);
 
-    // Existing (empty) tracking table is acceptable only if it has the expected shape.
+    // An existing (empty) tracking table is acceptable only if its structure is exactly what the
+    // installed Drizzle migrator creates. Validated BEFORE anything is inserted.
     const present = await tx.select(`select to_regclass('drizzle.__drizzle_migrations') is not null as present`);
     if (present[0]?.present) {
-      const cols = await tx.select(
-        `select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations' order by column_name`,
-      );
-      const names = cols.map((c) => String(c.column_name)).join(',');
-      if (names !== 'created_at,hash,id') {
-        throw new BaselineRefusedError(`Existing drizzle.__drizzle_migrations has unexpected columns (${names}).`, plan);
+      const problems = await trackingTableShapeProblems(tx);
+      if (problems.length) {
+        throw new BaselineRefusedError(
+          `Existing drizzle.__drizzle_migrations is not the expected table: ${problems.join('; ')}.`,
+          plan,
+        );
       }
     } else {
       // Same DDL as the installed Drizzle migrator, but WITHOUT "IF NOT EXISTS": a

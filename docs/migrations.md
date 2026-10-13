@@ -126,12 +126,12 @@ pnpm db:baseline <target> --confirm-baseline [--target <tag>]   # the ONLY writi
 
 ### How equivalence is proven
 1. `validateMetadata` (the `db:check` rules) must pass for the repository; metadata is never repaired here.
-2. The repository SQL is replayed one migration at a time in a fresh **in-memory** PGlite. After each migration the `public` schema catalog is fingerprinted: relations, columns (type, nullability, default, identity/generated), constraints (`pg_get_constraintdef`), indexes (`pg_indexes`), enum labels in order, triggers and function signatures.
+2. The repository SQL is replayed one migration at a time in a fresh **in-memory** PGlite. After each migration the `public` schema catalog is fingerprinted: relations, columns (type, nullability, default, identity/generated), constraints (`pg_get_constraintdef`, all kinds except PostgreSQL 18's separate NOT NULL rows, see below), indexes (`pg_indexes`), enum labels in order, triggers and function signatures.
 3. The target database is fingerprinted the same way. It must be **identical** to exactly one of those 11 states. The baseline then records that many migrations and leaves the rest pending, so a database that is only at 0005 is baselined at 0005, not at 0010.
 4. If the schema equals the state after several migrations (a schema-neutral migration), it is refused as ambiguous unless you pass `--target <tag>` naming one of the matching migrations.
 
 ### Refusal conditions (nothing is written)
-Repository metadata invalid · database empty · any Drizzle migration history already present (no "merge" path) · unknown applied hashes · schema matches no migration state (the report lists the differences against the closest state) · ambiguous match without a valid `--target` · `--target` that contradicts the schema · an existing `drizzle.__drizzle_migrations` with unexpected columns · post-write verification not exactly as planned.
+Repository metadata invalid · database empty · any Drizzle migration history already present (no "merge" path) · unknown applied hashes · schema matches no migration state (the report lists the differences against the closest state) · ambiguous match without a valid `--target` · `--target` that contradicts the schema · an existing `drizzle.__drizzle_migrations` whose structure differs from the migrator's (column names/types, nullability, defaults, primary key, triggers, non-plain table) or that has rows · post-write verification not exactly as planned.
 
 ### What `--confirm-baseline` writes
 Only the migration history, in a **single transaction**:
@@ -142,13 +142,28 @@ Only the migration history, in a **single transaction**:
 
 Application tables and data are never modified. A crash or error rolls the whole transaction back, so there is never partial history.
 
-### Limits and recovery
-- **Schema equality is not data equality.** Data-only migrations cannot be verified; the tool proves structure only.
-- Catalog text (`pg_get_constraintdef`, `pg_get_indexdef`) can differ between PostgreSQL major versions; a false mismatch fails closed (refusal), never a false match.
-- Only the `public` schema and migrations table are examined; objects elsewhere are not compared.
-- The advisory lock stops two baseline runs, but does not block other sessions running DDL concurrently; run it in a quiet window.
-- **Back up first.** To undo a baseline: `DROP TABLE drizzle.__drizzle_migrations` (and the `drizzle` schema if empty); nothing else was touched.
-- Real PostgreSQL has not been exercised by the automated tests (only PGlite); try the dry run on a restored copy first.
+### What is guaranteed, what is not
+
+**Confirmed behaviour (covered by tests)**
+- Nullability is compared once, through `pg_attribute.attnotnull`. PostgreSQL 18 additionally stores NOT NULL as `pg_constraint` rows (`contype = 'n'`, generated names) while 16/17 do not; those rows are excluded so the fingerprint is the same on 16, 17 and 18. Primary keys, foreign keys, unique, check and exclusion constraints are still compared, and tests show that dropping a NOT NULL, primary key, foreign key, unique or check constraint is refused.
+- The expectation is computed by PGlite (PostgreSQL 18) and the fingerprint of a real **PostgreSQL 16.15** database built from the same SQL is identical to it. This is exercised by `tests/integration/db-baseline-postgres.spec.ts` (see below). Other PostgreSQL versions and minors have not been exercised.
+- An existing `drizzle.__drizzle_migrations` is reused only if it is an empty, plain table with exactly `id integer NOT NULL DEFAULT nextval(own sequence)`, `hash text NOT NULL`, `created_at bigint` (no default), a `PRIMARY KEY (id)` and no user triggers. Anything else is refused before any insert.
+
+**Known limitations (not compared; a difference here does NOT prevent a match)**
+Objects outside `public` · privileges and ownership · row-level-security flags and policies · view definitions (only a view's name and columns) · function bodies (only name and argument types) · inheritance and partitioning · table persistence (unlogged) · column collations · index validity (an invalid index with the same definition matches) · disabled triggers (only the definition is compared) · sequence settings (only the sequence's existence) · domain and composite types · extensions · comments · column order · storage parameters. That these do not prevent a match was confirmed by probes for objects outside `public`, comments, an RLS flag and column order; for the others it follows from the fingerprint queries but was not probed. The repository SQL defines none of these, so any *extra* table, column, index, constraint, enum, trigger, view or function in `public` is refused; the risk is a database that differs only in one of the attributes above. Review those by hand before baselining. Catalog text that differs between PostgreSQL versions fails closed (a refusal), but that is a separate matter from the omissions listed here, which can match.
+
+**Unverified risks**
+- Only PostgreSQL 16.15 (real server, one disposable cluster) and PGlite have been tested. Other versions, managed services, extensions installed in `public`, unusual `search_path` or role settings (these can print type names differently and cause a refusal), and low-privilege roles (`information_schema` only shows tables the role can access, which can cause a refusal) are untested.
+- Schema equality is not data equality: data-only migrations cannot be verified.
+- The advisory lock serialises baseline runs. It does not block other sessions' DDL, so another session could change the schema between validation and commit. Run it in a quiet window.
+- A pooler in transaction mode (e.g. PgBouncer) has not been tested.
+
+### Integration test (real PostgreSQL)
+`tests/integration/db-baseline-postgres.spec.ts` runs only when the dedicated variable `EDUTECH_TEST_PG_ADMIN_URL` is set; otherwise it is skipped. `DATABASE_URL` is never read for it, and the test refuses to run if both are identical, if the host is not loopback, or in production. Each scenario creates a uniquely named database, and all of them are dropped in `finally`. In CI it points at the disposable `postgres:16-alpine` service. To run it locally, start your own throwaway server and export the variable; never point it at a database you care about.
+
+### Recovery
+- **Back up first.** To undo a baseline: `DROP TABLE drizzle.__drizzle_migrations` (and the `drizzle` schema if it is empty); nothing else was touched.
+- Run the dry run on a restored copy before baselining anything that matters.
 
 ## Not covered here (follow-ups)
 
