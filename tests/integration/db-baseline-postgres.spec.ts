@@ -54,7 +54,7 @@ const skipReason = ADMIN_URL
 
 describe('db:baseline on a real PostgreSQL server (disposable databases only)', { skip: skipReason }, () => {
   let admin: URL;
-  let adminSql: postgres.Sql;
+  let adminSql: postgres.Sql | undefined;
   const created: string[] = [];
   const open: postgres.Sql[] = [];
 
@@ -67,7 +67,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   async function newDatabase(name: string): Promise<string> {
     const dbName = `edutech_baseline_it_${name}_${randomBytes(4).toString('hex')}`;
     assert.match(dbName, /^[a-z0-9_]+$/);
-    await adminSql.unsafe(`CREATE DATABASE ${dbName}`);
+    await (adminSql as postgres.Sql).unsafe(`CREATE DATABASE ${dbName}`);
     created.push(dbName);
     return urlForDb(admin, dbName);
   }
@@ -113,16 +113,24 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   after(async () => {
+    // Best effort and independent steps: one failure must not skip the rest, and a failed `before`
+    // (adminSql never initialised) must not throw a secondary error that hides the original one.
     for (const c of open) await c.end({ timeout: 2 }).catch(() => {});
-    try {
-      for (const db of created) await adminSql.unsafe(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
-    } finally {
-      await adminSql.end({ timeout: 2 });
+    if (!adminSql) return;
+    const failures: string[] = [];
+    for (const db of created) {
+      try {
+        await adminSql.unsafe(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+      } catch (e) {
+        failures.push(`${db}: ${(e as Error).message}`);
+      }
     }
+    await adminSql.end({ timeout: 2 }).catch(() => {});
+    if (failures.length) throw new Error(`could not drop temporary database(s): ${failures.join('; ')}`);
   });
 
   it('is a real PostgreSQL server (not PGlite)', async () => {
-    const [v] = await adminSql`select version() as v`;
+    const [v] = await (adminSql as postgres.Sql)`select version() as v`;
     assert.ok(!/pglite/i.test(String(v.v)));
     assert.match(String(v.v), /^PostgreSQL \d+/);
   });

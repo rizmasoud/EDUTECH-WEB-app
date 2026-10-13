@@ -503,6 +503,7 @@ describe('fingerprint: NOT NULL is version-independent, other constraints stay c
     ['dropped primary key', 'alter table class_sessions drop constraint class_sessions_pkey cascade'],
     ['dropped foreign key', 'alter table class_sessions drop constraint class_sessions_class_id_classes_id_fk'],
     ['dropped unique constraint', 'alter table class_sessions drop constraint class_sessions_class_schedule_date_unique'],
+    ['extra exclusion constraint (contype x)', 'alter table classes add constraint probe_excl exclude using btree (capacity with =)'],
     ['weakened check constraint', 'alter table classes drop constraint classes_capacity_check; alter table classes add constraint classes_capacity_check check (capacity > 0)'],
   ] as const) {
     it(`still refuses: ${name}`, async () => {
@@ -527,6 +528,10 @@ describe('existing tracking table: structural validation before any insert', () 
     try {
       await rawReplay(pg, 11);
       await pg.exec(MIGRATOR_DDL);
+      // dry run and write agree: allowed, and the dry run leaves the empty table empty
+      const dry = await plan(pg);
+      assert.equal(dry.ok, true, dry.refusals.join(';'));
+      assert.equal((await historyState(pg)).rows, 0);
       await applyBaseline(pgliteExecutor(pg), realDir, { confirm: true });
       assert.equal((await historyState(pg)).rows, 11);
     } finally {
@@ -551,6 +556,11 @@ describe('existing tracking table: structural validation before any insert', () 
         await rawReplay(pg, 11);
         await pg.exec(`create schema drizzle; ${ddl}`);
         const before = JSON.stringify((await introspectSchema_(pg)));
+        // the DRY RUN must refuse too (same rules), without writing anything
+        const dry = await plan(pg);
+        assert.equal(dry.ok, false, `dry run must refuse: ${name}`);
+        assert.match(dry.refusals.join(' '), re);
+        assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 0);
         await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), (e: unknown) => {
           assert.ok(e instanceof BaselineRefusedError);
           assert.match((e as Error).message, re);
@@ -570,6 +580,7 @@ describe('existing tracking table: structural validation before any insert', () 
       await rawReplay(pg, 11);
       await pg.exec(MIGRATOR_DDL);
       await pg.exec(`insert into drizzle.__drizzle_migrations (hash, created_at) values ('abc', 1)`);
+      assert.equal((await plan(pg)).ok, false, 'dry run refuses existing history');
       await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), BaselineRefusedError);
       assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 1);
     } finally {

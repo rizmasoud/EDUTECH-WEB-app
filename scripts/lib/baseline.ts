@@ -250,6 +250,19 @@ export async function planBaseline(
     return refused({ status }, 'Unknown applied migration hashes are present.');
   }
 
+  // An existing (necessarily empty) tracking table is only acceptable if its structure is exactly
+  // what the installed Drizzle migrator creates. Checked here, read-only, so the dry run and the
+  // confirmed write agree and nothing is inserted into an incompatible table.
+  if (status.trackingTablePresent) {
+    const shape = await trackingTableShapeProblems(reader);
+    if (shape.length) {
+      return refused(
+        { status },
+        `Existing drizzle.__drizzle_migrations is not the expected table: ${shape.join('; ')}.`,
+      );
+    }
+  }
+
   // 3. Schema evidence.
   const prefixes = await buildExpectedPrefixes(migrationsDir);
   const actual = await introspectSchema(reader);
@@ -434,18 +447,9 @@ export async function applyBaseline(
     const plan = await planBaseline(tx, migrationsDir, options);
     if (!plan.ok) throw new BaselineRefusedError(`Baseline refused: ${plan.refusals.join(' ')}`, plan);
 
-    // An existing (empty) tracking table is acceptable only if its structure is exactly what the
-    // installed Drizzle migrator creates. Validated BEFORE anything is inserted.
-    const present = await tx.select(`select to_regclass('drizzle.__drizzle_migrations') is not null as present`);
-    if (present[0]?.present) {
-      const problems = await trackingTableShapeProblems(tx);
-      if (problems.length) {
-        throw new BaselineRefusedError(
-          `Existing drizzle.__drizzle_migrations is not the expected table: ${problems.join('; ')}.`,
-          plan,
-        );
-      }
-    } else {
+    // planBaseline (above) already refused an existing tracking table with an incompatible shape.
+    // An existing, valid, empty table is reused; otherwise it is created.
+    if (!plan.status?.trackingTablePresent) {
       // Same DDL as the installed Drizzle migrator, but WITHOUT "IF NOT EXISTS": a
       // concurrent creator makes this fail and roll back instead of being merged silently.
       await tx.execute('CREATE SCHEMA IF NOT EXISTS "drizzle"');
