@@ -20,6 +20,7 @@ import {
   resolveDatabaseDriver,
 } from '../apps/api/src/infrastructure/database/driver-selection';
 import {
+  metadataRefusals,
   MigrateRefusedError,
   planMigrate,
   postgresSessionOpener,
@@ -91,12 +92,24 @@ async function main(): Promise<number> {
     const target = `PostgreSQL ${maskConnectionString(url)}`;
     const migrationsDir = defaultDrizzleDir(findRepoRoot());
 
+    // Offline metadata validation BEFORE any connection or lock.
+    const metaRefusals = metadataRefusals(migrationsDir);
+    if (metaRefusals.length) {
+      const plan: MigratePlan = { ok: false, refusals: metaRefusals, pending: [] };
+      console.error(args.json ? JSON.stringify(plan, null, 2) : render(plan, target, 'dry-run'));
+      return 1;
+    }
+
     if (!args.confirm) {
       const plan = await withPostgresReader(url, (r) => planMigrate(r, migrationsDir));
       console.log(args.json ? JSON.stringify(plan, null, 2) : render(plan, target, 'dry-run'));
       return plan.ok ? 0 : 1;
     }
-    const result = await runMigrations(postgresSessionOpener(url), migrationsDir, { confirm: true });
+    const result = await runMigrations(
+      postgresSessionOpener(url, { onWarning: (m) => console.error(`Warning: ${maskConnectionString(m)}`) }),
+      migrationsDir,
+      { confirm: true },
+    );
     console.log(
       args.json
         ? JSON.stringify(result, null, 2)

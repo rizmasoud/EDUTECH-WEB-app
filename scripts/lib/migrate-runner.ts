@@ -54,11 +54,31 @@ function refused(refusals: string[], status?: MigrationStatusReport): MigratePla
   return { ok: false, refusals, status, pending: [] };
 }
 
+/**
+ * Offline check (no database): returns refusal reasons when the repository's migration metadata is
+ * invalid. Used BEFORE any connection is opened or any lock is taken.
+ */
+export function metadataRefusals(migrationsDir: string): string[] {
+  const meta = validateMetadata(migrationsDir);
+  return meta.problems.length ? [`Repository migration metadata is invalid: ${meta.problems.join('; ')}`] : [];
+}
+
 /** Read-only: can the pending migrations be applied safely, and which are they? */
 export async function planMigrate(reader: SqlReader, migrationsDir: string): Promise<MigratePlan> {
-  const meta = validateMetadata(migrationsDir);
-  if (meta.problems.length) {
-    return refused([`Repository migration metadata is invalid: ${meta.problems.join('; ')}`]);
+  const metaRefusals = metadataRefusals(migrationsDir);
+  if (metaRefusals.length) return refused(metaRefusals);
+
+  // Validate the tracking table's structure BEFORE any query that assumes its columns exist
+  // (inspectMigrations reads id/hash/created_at). A malformed table is refused, never repaired.
+  const present = await reader.select(`select to_regclass('drizzle.__drizzle_migrations') is not null as present`);
+  if (Boolean(present[0]?.present)) {
+    const shape = await trackingTableShapeProblems(reader, { requireEmpty: false });
+    if (shape.length) {
+      return refused([
+        `Malformed migration history: drizzle.__drizzle_migrations is not what the Drizzle migrator expects (${shape.join('; ')}). ` +
+          'It is not repaired automatically; inspect and fix it manually, or restore from a backup.',
+      ]);
+    }
   }
 
   const status = await inspectMigrations(reader, migrationsDir);
@@ -69,13 +89,6 @@ export async function planMigrate(reader: SqlReader, migrationsDir: string): Pro
       'The database has tables but no Drizzle migration history. Applying migrations would try to re-create them. ' +
         'Review and record a baseline first (pnpm db:baseline); the runner never baselines automatically.',
     );
-  }
-
-  if (status.trackingTablePresent) {
-    const shape = await trackingTableShapeProblems(reader, { requireEmpty: false });
-    if (shape.length) {
-      refusals.push(`drizzle.__drizzle_migrations is not what the Drizzle migrator expects: ${shape.join('; ')}.`);
-    }
   }
 
   if (status.unknownAppliedHashes.length > 0) {
@@ -152,6 +165,15 @@ export async function runMigrations(
   if (options.confirm !== true) {
     throw new MigrateRefusedError('Refusing to migrate: explicit confirmation (--confirm-migrate) is required.');
   }
+  // Offline validation first: invalid metadata never opens a connection or takes the lock.
+  const metaRefusals = metadataRefusals(migrationsDir);
+  if (metaRefusals.length) {
+    throw new MigrateRefusedError(`Migration refused: ${metaRefusals.join(' ')}`, {
+      ok: false,
+      refusals: metaRefusals,
+      pending: [],
+    });
+  }
   return open(async (session) => {
     // The session already holds the exclusive lock: re-validate with fresh state.
     const plan = await planMigrate(session.reader, migrationsDir);
@@ -180,6 +202,84 @@ export async function runMigrations(
 export interface PostgresSessionOptions {
   /** How long to wait for the exclusive lock before giving up (default 30000 ms). */
   lockTimeoutMs?: number;
+  /** Receives non-fatal cleanup diagnostics (e.g. a failed advisory unlock). Defaults to ignoring them. */
+  onWarning?: (message: string) => void;
+}
+
+/** The minimal client surface the locked session needs (postgres.js satisfies it). */
+export interface LockableClient {
+  unsafe(sql: string): Promise<unknown>;
+  end(options?: { timeout?: number }): Promise<unknown>;
+}
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Holds the shared advisory lock on `client` (one connection) while `fn` runs, then releases it.
+ * Cleanup never replaces the outcome of `fn`:
+ *  - an unlock failure is reported through `onWarning` and, when `fn` failed, also attached to that
+ *    original error as `unlockError`; the original error is the one that propagates;
+ *  - the client is ALWAYS closed afterwards, which ends the session and releases any lock still held.
+ */
+export async function runInLockedSession<T>(
+  client: LockableClient,
+  buildSession: (client: LockableClient) => MigrateSession,
+  fn: (session: MigrateSession) => Promise<T>,
+  options: PostgresSessionOptions = {},
+): Promise<T> {
+  const lockTimeoutMs = Math.max(1, Math.floor(options.lockTimeoutMs ?? 30000));
+  const warn = options.onWarning ?? (() => {});
+  let locked = false;
+  let failure: { error: unknown } | undefined;
+  let value: T | undefined;
+  try {
+    await client.unsafe(`select set_config('lock_timeout', '${lockTimeoutMs}ms', false)`);
+    try {
+      await client.unsafe(`select pg_advisory_lock(${Number(ADVISORY_LOCK_KEY)})`);
+    } catch (e) {
+      if ((e as { code?: string }).code === '55P03') {
+        throw new MigrateRefusedError(
+          `Could not acquire the migration lock within ${lockTimeoutMs} ms: another migrate or baseline run is active. Nothing was applied.`,
+        );
+      }
+      throw e;
+    }
+    locked = true;
+    await client.unsafe(`select set_config('lock_timeout', '0', false)`);
+    value = await fn(buildSession(client));
+  } catch (e) {
+    failure = { error: e };
+  }
+
+  let unlockError: unknown;
+  if (locked) {
+    try {
+      await client.unsafe(`select pg_advisory_unlock(${Number(ADVISORY_LOCK_KEY)})`);
+    } catch (e) {
+      unlockError = e;
+    }
+  }
+  try {
+    await client.end({ timeout: 2 });
+  } catch (e) {
+    warn(`Closing the database connection failed: ${errText(e)}`);
+  }
+
+  if (unlockError !== undefined) {
+    warn(
+      `Advisory unlock failed (${errText(unlockError)}); the lock is released when the connection closes.` +
+        (failure ? ` The original error is reported: ${errText(failure.error)}` : ''),
+    );
+    if (failure && typeof failure.error === 'object' && failure.error !== null) {
+      try {
+        (failure.error as { unlockError?: unknown }).unlockError = unlockError;
+      } catch {
+        /* frozen error object: the warning above still carries the diagnostics */
+      }
+    }
+  }
+  if (failure) throw failure.error;
+  return value as T;
 }
 
 /**
@@ -188,26 +288,12 @@ export interface PostgresSessionOptions {
  * The lock key is shared with `db:baseline`, so the two tools exclude each other.
  */
 export function postgresSessionOpener(url: string, options: PostgresSessionOptions = {}): MigrateSessionOpener {
-  const lockTimeoutMs = Math.max(1, Math.floor(options.lockTimeoutMs ?? 30000));
   return async (fn) => {
     const { default: postgres } = await import('postgres');
     const client = postgres(url, { max: 1, connect_timeout: 5, onnotice: () => {} });
-    let locked = false;
-    try {
-      await client.unsafe(`select set_config('lock_timeout', '${lockTimeoutMs}ms', false)`);
-      try {
-        await client.unsafe(`select pg_advisory_lock(${Number(ADVISORY_LOCK_KEY)})`);
-      } catch (e) {
-        if ((e as { code?: string }).code === '55P03') {
-          throw new MigrateRefusedError(
-            `Could not acquire the migration lock within ${lockTimeoutMs} ms: another migrate or baseline run is active. Nothing was applied.`,
-          );
-        }
-        throw e;
-      }
-      locked = true;
-      await client.unsafe(`select set_config('lock_timeout', '0', false)`);
-      return await fn({
+    return runInLockedSession(
+      client as unknown as LockableClient,
+      () => ({
         reader: {
           async select(sql) {
             assertReadOnlySql(sql);
@@ -215,14 +301,10 @@ export function postgresSessionOpener(url: string, options: PostgresSessionOptio
           },
         },
         migrate: (dir) => migratePostgres(drizzlePostgres(client), { migrationsFolder: dir }),
-      });
-    } finally {
-      try {
-        if (locked) await client.unsafe(`select pg_advisory_unlock(${Number(ADVISORY_LOCK_KEY)})`);
-      } finally {
-        await client.end({ timeout: 2 });
-      }
-    }
+      }),
+      fn,
+      options,
+    );
   };
 }
 

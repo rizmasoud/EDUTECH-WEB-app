@@ -18,7 +18,12 @@ import {
   MigrateRefusedError,
   pgliteSessionOpener,
   planMigrate,
+  postgresSessionOpener,
+  runInLockedSession,
   runMigrations,
+  type LockableClient,
+  type MigrateSession,
+  type MigrateSessionOpener,
 } from '../../scripts/lib/migrate-runner';
 import { withPGliteReader } from '../../scripts/lib/migration-status';
 import { parseArgs } from '../../scripts/db-migrate';
@@ -322,6 +327,176 @@ describe('runMigrations: failure and concurrency', () => {
     assert.equal(s.rows.length, TOTAL);
     assert.equal(new Set(s.rows.map((r) => r.hash)).size, TOTAL);
     await pg.close();
+  });
+});
+
+describe('malformed tracking table (refused before its columns are queried)', () => {
+  it('a tracking table missing created_at is refused as malformed history, not a connection failure', async () => {
+    const pg = new PGlite();
+    await pg.exec(`create schema drizzle; create table drizzle.__drizzle_migrations (id serial primary key, hash text not null)`);
+    await pg.exec(`insert into drizzle.__drizzle_migrations (hash) values ('abc')`);
+    const p = await plan(pg);
+    assert.equal(p.ok, false);
+    assert.match(p.refusals.join(' '), /Malformed migration history/);
+    assert.match(p.refusals.join(' '), /columns are \(hash,id\)/);
+    await assert.rejects(
+      run(pg),
+      (e: unknown) => e instanceof MigrateRefusedError && /Malformed migration history/.test((e as Error).message),
+    );
+    // Nothing repaired, recreated or modified.
+    const cols = (await pg.query<{ c: string }>(`select column_name as c from information_schema.columns where table_schema='drizzle' and table_name='__drizzle_migrations' order by 1`)).rows.map((r) => r.c);
+    assert.deepEqual(cols, ['hash', 'id']);
+    assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 1);
+    const pub = (await pg.query<{ n: string }>(`select table_name as n from information_schema.tables where table_schema = 'public'`)).rows;
+    assert.deepEqual(pub, []);
+    await pg.close();
+  });
+
+  it('a tracking table missing hash and created_at is refused the same way', async () => {
+    const pg = new PGlite();
+    await pg.exec(`create schema drizzle; create table drizzle.__drizzle_migrations (id serial primary key)`);
+    const p = await plan(pg);
+    assert.equal(p.ok, false);
+    assert.match(p.refusals.join(' '), /Malformed migration history/);
+    await assert.rejects(run(pg), MigrateRefusedError);
+    await pg.close();
+  });
+});
+
+describe('repository metadata is validated before any connection or lock', () => {
+  function invalidMetadataDir(): string {
+    const d = truncatedCopy(TOTAL);
+    const jp = path.join(d, 'meta', '_journal.json');
+    const j = JSON.parse(fs.readFileSync(jp, 'utf8'));
+    j.entries[2].tag = '0002_does_not_exist';
+    fs.writeFileSync(jp, JSON.stringify(j));
+    return d;
+  }
+
+  it('runMigrations rejects before the session opener is even called', async () => {
+    let opened = 0;
+    const open: MigrateSessionOpener = async () => {
+      opened++;
+      throw new Error('must not be opened');
+    };
+    await assert.rejects(
+      runMigrations(open, invalidMetadataDir(), { confirm: true }),
+      (e: unknown) => e instanceof MigrateRefusedError && /metadata is invalid/.test((e as Error).message),
+    );
+    assert.equal(opened, 0);
+  });
+
+  it('the PostgreSQL opener never dials: an unreachable URL still yields the metadata refusal', async () => {
+    // 127.0.0.1:1 would give ECONNREFUSED if a connection (and thus a lock) were attempted.
+    await assert.rejects(
+      runMigrations(postgresSessionOpener('postgresql://u:p@127.0.0.1:1/x'), invalidMetadataDir(), { confirm: true }),
+      (e: unknown) => e instanceof MigrateRefusedError && /metadata is invalid/.test((e as Error).message),
+    );
+  });
+
+  it('confirmation is still checked first', async () => {
+    await assert.rejects(
+      runMigrations(postgresSessionOpener('postgresql://u:p@127.0.0.1:1/x'), invalidMetadataDir(), { confirm: false }),
+      (e: unknown) => e instanceof MigrateRefusedError && /confirmation/.test((e as Error).message),
+    );
+  });
+});
+
+describe('runInLockedSession: cleanup never masks the original outcome', () => {
+  function fakeClient(opts: { failUnlock?: boolean; failEnd?: boolean; failLock?: unknown } = {}) {
+    const calls: string[] = [];
+    const client: LockableClient = {
+      async unsafe(sql) {
+        if (/set_config\('lock_timeout', '0'/.test(sql)) calls.push('reset-timeout');
+        else if (/set_config/.test(sql)) calls.push('set-timeout');
+        else if (/pg_advisory_lock/.test(sql)) {
+          calls.push('lock');
+          if (opts.failLock) throw opts.failLock;
+        } else if (/pg_advisory_unlock/.test(sql)) {
+          calls.push('unlock');
+          if (opts.failUnlock) throw new Error('unlock boom');
+        }
+        return [];
+      },
+      async end() {
+        calls.push('end');
+        if (opts.failEnd) throw new Error('end boom');
+      },
+    };
+    return { client, calls };
+  }
+  const session = (): MigrateSession => ({ reader: { select: async () => [] }, migrate: async () => {} });
+
+  it('success: lock, run, unlock, close - in that order', async () => {
+    const { client, calls } = fakeClient();
+    const warnings: string[] = [];
+    const v = await runInLockedSession(client, session, async () => 42, { onWarning: (m) => warnings.push(m) });
+    assert.equal(v, 42);
+    assert.deepEqual(calls, ['set-timeout', 'lock', 'reset-timeout', 'unlock', 'end']);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('a migration error is preserved when unlock also fails; both diagnostics are kept; client still closed', async () => {
+    const { client, calls } = fakeClient({ failUnlock: true });
+    const warnings: string[] = [];
+    const original = new Error('migration exploded');
+    await assert.rejects(
+      runInLockedSession(client, session, async () => { throw original; }, { onWarning: (m) => warnings.push(m) }),
+      (e: unknown) => e === original && (e as { unlockError?: Error }).unlockError?.message === 'unlock boom',
+    );
+    assert.ok(calls.includes('unlock') && calls[calls.length - 1] === 'end');
+    assert.match(warnings.join('\n'), /Advisory unlock failed \(unlock boom\).*migration exploded/);
+  });
+
+  it('a verification refusal (MigrateRefusedError) keeps its type when unlock fails', async () => {
+    const { client } = fakeClient({ failUnlock: true });
+    const original = new MigrateRefusedError('Post-migration verification failed: x');
+    await assert.rejects(
+      runInLockedSession(client, session, async () => { throw original; }),
+      (e: unknown) => e === original && e instanceof MigrateRefusedError,
+    );
+  });
+
+  it('a close failure does not mask the original error either', async () => {
+    const { client, calls } = fakeClient({ failUnlock: true, failEnd: true });
+    const warnings: string[] = [];
+    const original = new Error('first failure');
+    await assert.rejects(
+      runInLockedSession(client, session, async () => { throw original; }, { onWarning: (m) => warnings.push(m) }),
+      (e: unknown) => e === original,
+    );
+    assert.equal(calls[calls.length - 1], 'end');
+    assert.match(warnings.join('\n'), /Closing the database connection failed: end boom/);
+  });
+
+  it('an unlock failure after a successful run is a warning, not a failure (the close releases the lock)', async () => {
+    const { client, calls } = fakeClient({ failUnlock: true });
+    const warnings: string[] = [];
+    const v = await runInLockedSession(client, session, async () => 'done', { onWarning: (m) => warnings.push(m) });
+    assert.equal(v, 'done');
+    assert.equal(calls[calls.length - 1], 'end');
+    assert.match(warnings.join('\n'), /Advisory unlock failed \(unlock boom\)/);
+  });
+
+  it('a frozen original error still propagates (diagnostics go to the warning)', async () => {
+    const { client } = fakeClient({ failUnlock: true });
+    const warnings: string[] = [];
+    const original = Object.freeze(new Error('frozen failure'));
+    await assert.rejects(
+      runInLockedSession(client, session, async () => { throw original; }, { onWarning: (m) => warnings.push(m) }),
+      (e: unknown) => e === original,
+    );
+    assert.match(warnings.join('\n'), /unlock boom/);
+  });
+
+  it('lock timeout: refused, nothing to unlock, client closed', async () => {
+    const { client, calls } = fakeClient({ failLock: Object.assign(new Error('timeout'), { code: '55P03' }) });
+    await assert.rejects(
+      runInLockedSession(client, session, async () => 1, { lockTimeoutMs: 10 }),
+      (e: unknown) => e instanceof MigrateRefusedError && /migration lock/.test((e as Error).message),
+    );
+    assert.ok(!calls.includes('unlock'));
+    assert.equal(calls[calls.length - 1], 'end');
   });
 });
 
