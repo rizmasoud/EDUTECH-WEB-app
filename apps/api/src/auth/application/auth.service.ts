@@ -31,6 +31,7 @@ import type { IPasswordHasher } from '../domain/password-hasher.interface';
 import type { ISessionTokenService } from '../domain/session-token.interface';
 import type { ILoginRateLimiter } from '../domain/rate-limiter.interface';
 import type { ISecurityAuditService } from '../domain/security-audit.interface';
+import { sanitizeClientInfo } from './session-metadata';
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -51,8 +52,10 @@ export class AuthService {
 
   async login(
     dto: LoginDto,
-    clientInfo: { ipAddress?: string; userAgent?: string } = {},
+    rawClientInfo: { ipAddress?: string; userAgent?: string } = {},
   ): Promise<{ account: AuthUser; rawToken: string }> {
+    // Bound/validate request metadata once: the same values go to the session row and to audit events.
+    const clientInfo = sanitizeClientInfo(rawClientInfo);
     const rateLimitKey = `login:${dto.personnelCode}`;
 
     if (this.rateLimiter.isRateLimited(rateLimitKey)) {
@@ -162,8 +165,8 @@ export class AuthService {
       accountId: accountRecord.id,
       tokenHash,
       expiresAt,
-      userAgent: clientInfo.userAgent ?? null,
-      ipAddress: clientInfo.ipAddress ?? null,
+      userAgent: clientInfo.userAgent,
+      ipAddress: clientInfo.ipAddress,
     });
 
     const user = await this.buildAuthUser(accountRecord.id);
