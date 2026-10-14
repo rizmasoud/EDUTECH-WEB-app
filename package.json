@@ -14,6 +14,7 @@
     "db:check": "tsx --tsconfig apps/api/tsconfig.json scripts/db-check.ts",
     "db:status": "tsx --tsconfig apps/api/tsconfig.json scripts/db-status.ts",
     "db:baseline": "tsx --tsconfig apps/api/tsconfig.json scripts/db-baseline.ts",
+    "db:migrate": "tsx --tsconfig apps/api/tsconfig.json scripts/db-migrate.ts",
     "clean": "next clean"
   },
   "dependencies": {

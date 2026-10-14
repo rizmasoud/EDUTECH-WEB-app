@@ -357,7 +357,11 @@ export class BaselineRefusedError extends Error {
  * Drizzle migrator creates: `id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint`.
  * Returns human-readable problems (empty = compatible). Read-only.
  */
-export async function trackingTableShapeProblems(reader: SqlReader): Promise<string[]> {
+export async function trackingTableShapeProblems(
+  reader: SqlReader,
+  options: { requireEmpty?: boolean } = {},
+): Promise<string[]> {
+  const requireEmpty = options.requireEmpty ?? true;
   const problems: string[] = [];
   const rel = await reader.select(
     `select c.relkind::text as kind, c.relispartition::text as ispart, c.relhassubclass::text as hassub
@@ -419,12 +423,12 @@ export async function trackingTableShapeProblems(reader: SqlReader): Promise<str
   if (Number(trig[0]?.n ?? 0) !== 0) problems.push('it has user triggers');
 
   const rows = await reader.select('select count(*)::int as n from "drizzle"."__drizzle_migrations"');
-  if (Number(rows[0]?.n ?? 0) !== 0) problems.push('it already contains rows');
+  if (requireEmpty && Number(rows[0]?.n ?? 0) !== 0) problems.push('it already contains rows');
   return problems;
 }
 
-/** Constant key so two baseline attempts can never run concurrently. */
-const ADVISORY_LOCK_KEY = 7364201;
+/** Constant key so two baseline attempts (and the migrate runner, which shares it) can never run concurrently. */
+export const ADVISORY_LOCK_KEY = 7364201;
 
 export interface ApplyOptions extends PlanOptions {
   /** Must be exactly `true`. */
