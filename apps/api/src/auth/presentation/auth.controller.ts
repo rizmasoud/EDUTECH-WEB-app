@@ -43,10 +43,10 @@ export class AuthController {
       });
     }
 
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string) ||
-      req.socket.remoteAddress ||
-      undefined;
+    // `req.ip` is resolved by Express according to the configured `trust proxy` setting, so a
+    // client-supplied X-Forwarded-For is only honoured behind a trusted proxy. The service
+    // validates/bounds both values before they are stored (see session-metadata.ts).
+    const ipAddress = req.ip || req.socket.remoteAddress || undefined;
     const userAgent = req.headers['user-agent'] || undefined;
 
     const { account, rawToken } = await this.authService.login(parseResult.data, {
