@@ -165,8 +165,31 @@ Objects outside `public` · privileges and ownership · row-level-security flags
 - **Back up first.** To undo a baseline: `DROP TABLE drizzle.__drizzle_migrations` (and the `drizzle` schema if it is empty); nothing else was touched.
 - Run the dry run on a restored copy before baselining anything that matters.
 
+## `pnpm db:migrate` (dry run by default)
+
+Applies the repository's **pending** migrations to a PostgreSQL database using the installed Drizzle migrator (the repository SQL files and journal are used as-is; nothing is generated or rewritten).
+
+```
+DATABASE_DRIVER=postgres DATABASE_URL=postgresql://... pnpm db:migrate                    # dry run, read-only
+DATABASE_DRIVER=postgres DATABASE_URL=postgresql://... pnpm db:migrate --confirm-migrate  # applies
+```
+
+- **Explicit target.** `DATABASE_DRIVER=postgres` must be set; the driver is never inferred from `DATABASE_URL`, `--pglite-dir` is not accepted, and PGlite is never used or fallen back to. Without it the command exits 2 without connecting.
+- **Confirmation.** Without `--confirm-migrate` the command only reads (a `READ ONLY` transaction that is always rolled back) and prints the migrations it would apply. Exit codes: 0 ok / nothing to do, 1 refused (including lock timeout and a failed post-check), 2 usage, configuration or connection error, or a migration that failed to execute.
+- **Never at startup.** The runner is not called by the application. `PGLITE_AUTO_MIGRATE` and application startup are unchanged.
+
+### Refusal conditions (nothing is written)
+Repository metadata that fails `db:check`'s validation; a database with tables but no migration history (use `db:baseline` first - the runner never baselines); applied hashes that match no repository migration; a tracking table whose shape differs from what the migrator creates; duplicate history rows; applied migrations that are not a prefix of the journal; any case where the migrator's own skip rule (it compares only against the latest `created_at`) would skip a pending migration or re-run an applied one (the same discrepancies `db:status` reports). History is never repaired automatically.
+
+### Locking and transactions
+- The run uses a single dedicated connection holding a session-level PostgreSQL advisory lock (the same key as `db:baseline`, so the two tools exclude each other). A second concurrent runner waits for the lock (default 30 s, then refuses with exit 1 and applies nothing); once it has the lock it re-validates, finds nothing pending and does nothing. Only runs that use this command or `db:baseline` are serialised: other sessions' DDL is not blocked.
+- The installed migrator applies all pending migrations in **one transaction**, so a failing migration rolls back that whole batch (tested on PostgreSQL 16 and PGlite: no partial history, no partial tables). Limits: the migrator itself runs `CREATE SCHEMA IF NOT EXISTS "drizzle"` and `CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"` *outside* that transaction, so a failed first run on an empty database can leave an empty tracking table (which a later run reuses). PostgreSQL statements that cannot run inside a transaction block (for example `CREATE INDEX CONCURRENTLY`) would fail the batch; no such statement exists in the current migrations. After the migrator returns, the runner re-checks the status; if that check fails it exits non-zero but the migrator's commit cannot be undone - inspect with `pnpm db:status`.
+- A pooler in transaction mode (e.g. PgBouncer) does not preserve session-level locks and has not been tested; connect directly.
+
+### Integration test
+`tests/integration/db-migrate-postgres.spec.ts` follows the same safety rules as the baseline integration test (dedicated `EDUTECH_TEST_PG_ADMIN_URL`, loopback only, never `DATABASE_URL`, uniquely named databases dropped in `after`) and also covers concurrent runners, a held lock and failed migrations on a real server. Only PostgreSQL 16 and PGlite (PostgreSQL 18 engine) have been exercised; the existing CI job covers it through the PostgreSQL service it already starts.
+
 ## Not covered here (follow-ups)
 
-- A general migration **runner** that applies pending migrations to PostgreSQL (with confirmation).
 - Replacing `PGLITE_AUTO_MIGRATE` replay with the tracked migrator, and the test helper (`tests/helpers/migration-helper.ts`, unchanged).
 - Untracking `.pglite-storage` from git and a CI job that applies migrations to a throwaway Postgres.
