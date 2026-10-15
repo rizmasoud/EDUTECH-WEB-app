@@ -32,6 +32,13 @@ export class AuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
+
+    // The guard is global and some controllers still declare it too. Validate the session only
+    // once per request: guards set `user`/`rawSessionToken` only after a successful validation.
+    if ((request as any).user && (request as any).rawSessionToken) {
+      return true;
+    }
+
     const token = this.extractToken(request);
 
     if (!token) {

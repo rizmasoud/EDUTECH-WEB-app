@@ -18,6 +18,7 @@ import { SupportModule } from './support/support.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { ApiRateLimiterGuard } from './shared/guards/api-rate-limiter.guard';
+import { AuthGuard } from './auth/presentation/guards/auth.guard';
 
 @Module({
   imports: [
@@ -43,9 +44,15 @@ import { ApiRateLimiterGuard } from './shared/guards/api-rate-limiter.guard';
   ],
   controllers: [],
   providers: [
+    // Global guards run in registration order: rate limiting first (unchanged), then authentication.
+    // Routes are protected by default; intentionally public routes must carry @Public().
     {
       provide: APP_GUARD,
       useClass: ApiRateLimiterGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
     },
   ],
 })
