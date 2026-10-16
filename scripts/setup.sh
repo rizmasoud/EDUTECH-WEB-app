@@ -9,9 +9,9 @@ if ! command -v pnpm &> /dev/null; then
   corepack enable
 fi
 
-# 2. Setup environment configuration
+# 2. Setup environment configuration (never overwrites an existing .env)
 if [ ! -f .env ]; then
-  echo "Creating .env from .env.example..."
+  echo "Creating .env from .env.example (local development placeholders)..."
   cp .env.example .env
 fi
 
@@ -20,5 +20,7 @@ echo "Installing dependencies..."
 pnpm install
 
 echo "=== Setup complete! ==="
-echo "To start PostgreSQL: docker compose up -d"
-echo "To start development: pnpm dev"
+echo "1. Start PostgreSQL:        pnpm db:up"
+echo "2. Apply migrations:        pnpm db:migrate --confirm-migrate"
+echo "3. (optional) demo data:    pnpm db:seed:dev --confirm-seed"
+echo "4. Start development:       pnpm dev"

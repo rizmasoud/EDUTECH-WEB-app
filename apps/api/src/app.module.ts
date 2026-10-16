@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -20,10 +21,19 @@ import { PayrollModule } from './payroll/payroll.module';
 import { ApiRateLimiterGuard } from './shared/guards/api-rate-limiter.guard';
 import { AuthGuard } from './auth/presentation/guards/auth.guard';
 
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const ENV_FILE_PATHS = Array.from(
+  new Set(['.env.local', '.env', path.join(REPO_ROOT, '.env.local'), path.join(REPO_ROOT, '.env')]),
+);
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Load .env explicitly: from the working directory and from the repository root, so the API
+      // finds it whether it is started from the root (pnpm dev) or from apps/api. Variables that
+      // are already set in the environment always win.
+      envFilePath: ENV_FILE_PATHS,
       validate: validateEnv,
     }),
     DatabaseModule,

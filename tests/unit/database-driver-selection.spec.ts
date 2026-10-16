@@ -11,7 +11,7 @@ const PG = 'postgresql://user:secret@localhost:5432/db';
 const throwsConfig = (env: Record<string, string>, re: RegExp) =>
   assert.throws(() => resolveDatabaseDriver(env), (e: unknown) => e instanceof DatabaseConfigError && re.test((e as Error).message));
 
-describe('resolveDatabaseDriver', () => {
+describe('resolveDatabaseDriver (PostgreSQL only)', () => {
   it('explicit postgres with a postgres URL', () => {
     const s = resolveDatabaseDriver({ DATABASE_DRIVER: 'postgres', DATABASE_URL: PG });
     assert.equal(s.driver, 'postgres');
@@ -20,73 +20,54 @@ describe('resolveDatabaseDriver', () => {
     assert.deepEqual(s.warnings, []);
   });
 
-  it('explicit postgres requires a postgres URL', () => {
-    throwsConfig({ DATABASE_DRIVER: 'postgres' }, /requires DATABASE_URL/);
-    throwsConfig({ DATABASE_DRIVER: 'postgres', DATABASE_URL: 'pglite' }, /requires DATABASE_URL/);
-    throwsConfig({ DATABASE_DRIVER: 'postgres', DATABASE_URL: 'mysql://x' }, /requires DATABASE_URL/);
-  });
-
-  it('explicit postgres conflicts with USE_PGLITE=true', () => {
-    throwsConfig({ DATABASE_DRIVER: 'postgres', DATABASE_URL: PG, USE_PGLITE: 'true' }, /conflicts with USE_PGLITE/);
-  });
-
-  it('explicit pglite is accepted without a URL, or with "pglite"', () => {
-    assert.equal(resolveDatabaseDriver({ DATABASE_DRIVER: 'pglite' }).driver, 'pglite');
-    assert.equal(resolveDatabaseDriver({ DATABASE_DRIVER: 'pglite', DATABASE_URL: 'pglite' }).driver, 'pglite');
-  });
-
-  it('explicit pglite conflicts with a postgres URL (no guessing which one wins)', () => {
-    throwsConfig({ DATABASE_DRIVER: 'pglite', DATABASE_URL: PG }, /conflicts with a DATABASE_URL/);
-  });
-
-  it('rejects an unknown DATABASE_DRIVER', () => {
-    throwsConfig({ DATABASE_DRIVER: 'sqlite' }, /must be "postgres" or "pglite"/);
-  });
-
-  it('production never allows PGlite, however it is requested', () => {
-    throwsConfig({ NODE_ENV: 'production', DATABASE_DRIVER: 'pglite' }, /not allowed in production/);
-    throwsConfig({ NODE_ENV: 'production', DATABASE_URL: 'pglite' }, /not allowed in production/);
-    throwsConfig({ NODE_ENV: 'production', USE_PGLITE: 'true' }, /not allowed in production/);
-    throwsConfig({ NODE_ENV: ' Production ' }, /No database configured in production/);
-  });
-
-  it('production with explicit postgres works', () => {
+  it('postgres:// and postgresql:// are both accepted, production included', () => {
+    assert.equal(resolveDatabaseDriver({ DATABASE_URL: 'postgres://u:p@h/db' }).driver, 'postgres');
     assert.equal(
       resolveDatabaseDriver({ NODE_ENV: 'production', DATABASE_DRIVER: 'postgres', DATABASE_URL: PG }).driver,
       'postgres',
     );
   });
 
-  it('legacy inference: postgres URL -> postgres, with a warning', () => {
+  it('DATABASE_URL alone selects PostgreSQL, with a warning', () => {
     const s = resolveDatabaseDriver({ DATABASE_URL: PG });
     assert.equal(s.driver, 'postgres');
     assert.equal(s.source, 'DATABASE_URL');
     assert.equal(s.warnings.length, 1);
   });
 
-  it('legacy inference: DATABASE_URL=pglite and USE_PGLITE=true -> pglite with a warning', () => {
-    const a = resolveDatabaseDriver({ DATABASE_URL: 'pglite' });
-    assert.equal(a.driver, 'pglite');
-    assert.ok(a.warnings.length >= 1);
-    const b = resolveDatabaseDriver({ USE_PGLITE: 'true', DATABASE_URL: PG });
-    assert.equal(b.driver, 'pglite');
-    assert.ok(b.warnings.some((w) => /ignored/.test(w)));
+  it('nothing configured fails with an actionable error in EVERY environment (no implicit fallback)', () => {
+    for (const NODE_ENV of [undefined, 'development', 'test', 'production']) {
+      const env: Record<string, string> = NODE_ENV ? { NODE_ENV } : {};
+      throwsConfig(env, /DATABASE_URL is not set[\s\S]*\.env\.example[\s\S]*docker compose up -d --wait postgres/);
+    }
+    throwsConfig({ DATABASE_DRIVER: 'postgres' }, /DATABASE_URL is not set/);
+    throwsConfig({ DATABASE_URL: '   ' }, /DATABASE_URL is not set/);
   });
 
-  it('legacy inference: nothing configured outside production -> pglite (explicitly implicit)', () => {
-    const s = resolveDatabaseDriver({});
-    assert.equal(s.driver, 'pglite');
-    assert.equal(s.source, 'implicit-default');
-    assert.ok(s.warnings.length >= 1);
+  it('PGlite is rejected however it is requested', () => {
+    throwsConfig({ DATABASE_DRIVER: 'pglite' }, /no longer a supported runtime database/);
+    throwsConfig({ DATABASE_DRIVER: 'pglite', DATABASE_URL: PG }, /no longer a supported runtime database/);
+    throwsConfig({ DATABASE_URL: 'pglite' }, /no longer a supported runtime database/);
+    throwsConfig({ USE_PGLITE: 'true', DATABASE_URL: PG }, /no longer a supported runtime database/);
+    throwsConfig({ NODE_ENV: 'production', DATABASE_DRIVER: 'pglite' }, /no longer a supported runtime database/);
   });
 
-  it('rejects a DATABASE_URL that is neither postgres nor "pglite"', () => {
+  it('rejects an unknown DATABASE_DRIVER and a non-postgres URL', () => {
+    throwsConfig({ DATABASE_DRIVER: 'sqlite', DATABASE_URL: PG }, /must be "postgres"/);
     throwsConfig({ DATABASE_URL: 'http://example.com' }, /must be a postgres/);
+    throwsConfig({ DATABASE_DRIVER: 'postgres', DATABASE_URL: 'mysql://x' }, /must be a postgres/);
   });
 
   it('is a pure function: same input, same output, never touches the network', () => {
     const env = { DATABASE_DRIVER: 'postgres', DATABASE_URL: 'postgresql://u:p@192.0.2.1:5432/db' };
     assert.deepEqual(resolveDatabaseDriver(env), resolveDatabaseDriver(env));
+  });
+
+  it('error messages never contain the configured password', () => {
+    assert.throws(
+      () => resolveDatabaseDriver({ DATABASE_DRIVER: 'pglite', DATABASE_URL: PG }),
+      (e: Error) => !e.message.includes('secret'),
+    );
   });
 });
 

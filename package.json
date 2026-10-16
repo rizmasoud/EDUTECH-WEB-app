@@ -12,9 +12,11 @@
     "test:coverage": "tsx --tsconfig apps/api/tsconfig.json --test --experimental-test-coverage tests/unit/*.spec.ts tests/integration/*.spec.ts",
     "lint": "eslint .",
     "db:check": "tsx --tsconfig apps/api/tsconfig.json scripts/db-check.ts",
-    "db:status": "tsx --tsconfig apps/api/tsconfig.json scripts/db-status.ts",
-    "db:baseline": "tsx --tsconfig apps/api/tsconfig.json scripts/db-baseline.ts",
-    "db:migrate": "tsx --tsconfig apps/api/tsconfig.json scripts/db-migrate.ts",
+    "db:status": "node scripts/with-env.mjs tsx --tsconfig apps/api/tsconfig.json scripts/db-status.ts",
+    "db:baseline": "node scripts/with-env.mjs tsx --tsconfig apps/api/tsconfig.json scripts/db-baseline.ts",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:seed:dev": "node scripts/with-env.mjs tsx --tsconfig apps/api/tsconfig.json scripts/db-seed-dev.ts",
+    "db:migrate": "node scripts/with-env.mjs tsx --tsconfig apps/api/tsconfig.json scripts/db-migrate.ts",
     "clean": "next clean"
   },
   "dependencies": {

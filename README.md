@@ -80,14 +80,23 @@ pnpm install
 
 ---
 
-## 6. How to Start PostgreSQL
+## 6. How to Start PostgreSQL (the only supported database)
 ```bash
-# Start PostgreSQL via Docker Compose in the background
-docker compose up -d
+# Local development placeholders; never commit .env
+cp .env.example .env
 
-# Verify container is running and healthy
-docker compose ps
+# Start PostgreSQL in the background and wait until it is healthy
+pnpm db:up            # = docker compose up -d --wait postgres
+
+# Apply the repository migrations to an empty database (dry run first, then confirm)
+pnpm db:migrate
+pnpm db:migrate --confirm-migrate
+
+# Optional: demo accounts for development (SUP-01 / SupervisorPass123!)
+pnpm db:seed:dev --confirm-seed
 ```
+Data lives in the named Docker volume `postgres_data`; `docker compose stop` keeps it. **Never run
+`docker compose down -v`** unless you want to erase the database. Details: `docs/migrations.md`.
 
 ---
 
@@ -153,8 +162,8 @@ Configuration is cleanly decoupled from source code:
    cp .env.example .env
    ```
 2. Key environment variables:
-   * `DATABASE_DRIVER`: `postgres` (or `pglite` for the embedded dev database; see `docs/migrations.md`)
-   * `DATABASE_URL`: PostgreSQL connection string (`postgresql://edutech_user:edutech_password@localhost:5432/edutech_db`)
+   * `DATABASE_DRIVER`: `postgres` (PostgreSQL is the only supported runtime database; see `docs/migrations.md`)
+   * `DATABASE_URL`: PostgreSQL connection string (`postgresql://edutech_user:edutech_password@127.0.0.1:5432/edutech_db`)
    * `NODE_ENV`: Runtime environment (`development`, `production`, `test`)
    * `API_PORT`: Backend port (default `4000`)
    * `PORT`: Frontend port (default `3000`)
