@@ -117,13 +117,16 @@ async function main(): Promise<number> {
         await pg.close();
       }
     } else {
-      const selection = resolveDatabaseDriver(process.env);
-      if (selection.source !== 'DATABASE_DRIVER' || selection.driver !== 'postgres') {
+      // The explicit-target check comes first, on the raw environment: it must not depend on the
+      // rest of the database configuration being valid (resolveDatabaseDriver throws for a missing
+      // DATABASE_URL), and nothing is resolved or connected before it passes.
+      if (process.env.DATABASE_DRIVER?.trim().toLowerCase() !== 'postgres') {
         console.error(
           'Baseline needs an explicit target: set DATABASE_DRIVER=postgres (with a postgres DATABASE_URL) or pass --pglite-dir <dir>.',
         );
         return 2;
       }
+      const selection = resolveDatabaseDriver(process.env);
       const url = selection.connectionString as string;
       target = `PostgreSQL ${maskConnectionString(url)}`;
       plan = args.confirm
