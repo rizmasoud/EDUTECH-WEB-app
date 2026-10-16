@@ -63,35 +63,45 @@ Offline: it never connects to a database and never reads `DATABASE_URL`. Its res
 
 The tests are in `tests/unit/migration-metadata.spec.ts` (real files plus negative fixtures in temp copies) and run with the normal `pnpm test`.
 
-## Database drivers (explicit selection)
+## Runtime database: PostgreSQL only
 
-The driver is chosen from the environment alone (`apps/api/src/infrastructure/database/driver-selection.ts`); a failed connection never changes it.
+PostgreSQL is the only supported runtime database. The configuration is read from the environment alone (`apps/api/src/infrastructure/database/driver-selection.ts`); a failed connection never changes it and there is no fallback engine.
 
 | Configuration | Result |
 |---|---|
-| `DATABASE_DRIVER=postgres` + postgres(ql):// `DATABASE_URL` | PostgreSQL (preferred) |
-| `DATABASE_DRIVER=pglite` (no `DATABASE_URL`, or `pglite`) | Embedded PGlite, non-production only |
-| `DATABASE_DRIVER=pglite` + a postgres URL, `postgres` without a postgres URL, `postgres` + `USE_PGLITE=true` | **Startup error** (conflict) |
-| `NODE_ENV=production` with PGlite or with no database configured | **Startup error** |
-| Legacy: only a postgres `DATABASE_URL` | PostgreSQL, with a warning to set `DATABASE_DRIVER` |
-| Legacy: `DATABASE_URL=pglite` or `USE_PGLITE=true` | PGlite, with a deprecation warning |
-| Nothing configured, non-production | PGlite, with a warning (explicit, not failure-driven) |
+| `DATABASE_DRIVER=postgres` + postgres(ql):// `DATABASE_URL` | PostgreSQL (recommended; required by `db:migrate` / `db:baseline`) |
+| only a postgres(ql):// `DATABASE_URL` | PostgreSQL, with a warning to set `DATABASE_DRIVER=postgres` |
+| no `DATABASE_URL` (any `NODE_ENV`) | **Startup error** explaining how to configure PostgreSQL |
+| `DATABASE_DRIVER=pglite`, `DATABASE_URL=pglite`, `USE_PGLITE=true` | **Startup error** (PGlite is no longer a runtime database) |
+| anything else (unknown driver, non-postgres URL) | **Startup error** |
 
-**Behaviour change:** if PostgreSQL is selected and cannot be reached, the API now fails to start (error message with the password masked). It used to log a warning and silently open PGlite instead. The old default `DATABASE_URL` in the env schema was removed for the same reason.
+**Where the API reads `.env` from:** `ConfigModule` in `apps/api/src/app.module.ts` loads `.env.local` and `.env` from the working directory and from the repository root, so it works whether the API is started by `pnpm dev` (repository root) or from `apps/api`. Variables already present in the environment always win. The `pnpm db:*` scripts load the same files through `scripts/with-env.mjs`. `.env.example` is only a template: copy it to `.env`.
 
-### PGlite bootstrap (development only)
+**Startup behaviour:** the API waits up to 30 seconds (`DATABASE_CONNECT_RETRY_SECONDS`, `0` = do not wait) for PostgreSQL to accept connections, retrying only "not up yet" errors (connection refused, timeout, "starting up"); authentication or database-name errors fail immediately. Errors never print the password. If the connection still fails the API exits with an actionable message. If it connects but the `accounts` table is missing it logs a warning to run `pnpm db:migrate --confirm-migrate` (it does not block startup).
 
-Defaults are inert: with no flags the app opens the PGlite directory, requires the `accounts` table to exist, and otherwise fails with a clear message. Nothing is applied, seeded or deleted.
+### First-time setup of an empty PostgreSQL database
 
-| Variable | Default | Effect |
-|---|---|---|
-| `PGLITE_DATA_DIR` | `./.pglite-storage` | Directory, or `memory` for an in-memory database |
-| `PGLITE_AUTO_MIGRATE` | `false` | `true` replays every SQL file at startup. This is the old, untracked behaviour (errors containing "already exists" are ignored); use it for a fresh/throwaway dev database only |
-| `PGLITE_SEED_DEMO` | `false` | `true` inserts demo accounts/data when `accounts` is empty (known demo passwords) |
+```bash
+cp .env.example .env                       # local development placeholders; edit if you like
+pnpm db:up                                 # docker compose up -d --wait postgres (waits until healthy)
+pnpm db:migrate                            # dry run: shows what would be applied, changes nothing
+pnpm db:migrate --confirm-migrate          # applies the repository migrations (see below)
+pnpm db:seed:dev                           # optional dry run for demo data
+pnpm db:seed:dev --confirm-seed            # optional: demo accounts, development only
+pnpm dev
+```
 
-The storage directory is **never** removed or reset automatically. Previously, any failure of the `accounts` query deleted `.pglite-storage` and rebuilt it.
+`pnpm db:seed:dev` (`scripts/db-seed-dev.ts`) is explicit and opt-in. It refuses `NODE_ENV=production`, requires the `accounts` table to exist and be **empty**, and only inserts (no update/delete/truncate). The demo supervisor login is `SUP-01` / `SupervisorPass123!` (known development password; never use it outside a local database). The old PGlite startup seeding (`PGLITE_SEED_DEMO`) and auto-migration (`PGLITE_AUTO_MIGRATE`) no longer exist.
 
-For a first local run with PGlite: `DATABASE_DRIVER=pglite PGLITE_AUTO_MIGRATE=true PGLITE_SEED_DEMO=true`. An existing storage directory created before this change keeps working without the flags as long as it has the schema; it will not receive newer migrations automatically.
+### Data safety
+
+- The compose service keeps its data in the named volume `postgres_data` (project-prefixed by Compose, e.g. `edutech-web-app_postgres_data`), which survives `docker compose stop`, `restart` and `up -d`. The volume name was not changed, so an existing volume keeps being used.
+- **Only** `docker compose down -v`, `docker volume rm`/`prune` or deleting the volume erase the data. No script or command in this repository does that.
+- `db:migrate`, `db:status`, `db:baseline` and `db:seed:dev` never drop, truncate or reset anything.
+
+### PGlite that remains in the repository
+
+PGlite is no longer used by the running application. `@electric-sql/pglite` is still a dependency because the test-suite and the baseline tooling use it as an **in-memory** engine (`tests/helpers/migration-helper.ts`, `scripts/lib/baseline.ts`), and `db:status` / `db:baseline` still accept an explicit `--pglite-dir <dir>` for inspecting an existing directory. The tracked `.pglite-storage/` directory is an incomplete, unused snapshot and was deliberately left untouched here; untracking it is a separate follow-up.
 
 ## `pnpm db:status` (read-only)
 
@@ -171,12 +181,12 @@ Applies the repository's **pending** migrations to a PostgreSQL database using t
 
 ```
 DATABASE_DRIVER=postgres DATABASE_URL=postgresql://... pnpm db:migrate                    # dry run, read-only
-DATABASE_DRIVER=postgres DATABASE_URL=postgresql://... pnpm db:migrate --confirm-migrate  # applies
+pnpm db:migrate --confirm-migrate  # applies (reads DATABASE_DRIVER/DATABASE_URL from .env or the environment)
 ```
 
 - **Explicit target.** `DATABASE_DRIVER=postgres` must be set; the driver is never inferred from `DATABASE_URL`, `--pglite-dir` is not accepted, and PGlite is never used or fallen back to. Without it the command exits 2 without connecting.
 - **Confirmation.** Without `--confirm-migrate` the command only reads (a `READ ONLY` transaction that is always rolled back) and prints the migrations it would apply. Exit codes: 0 ok / nothing to do, 1 refused (including lock timeout and a failed post-check), 2 usage, configuration or connection error, or a migration that failed to execute.
-- **Never at startup.** The runner is not called by the application. `PGLITE_AUTO_MIGRATE` and application startup are unchanged.
+- **Never at startup.** The runner is not called by the application; the API never applies migrations on startup.
 
 ### Refusal conditions (nothing is written)
 Repository metadata that fails `db:check`'s validation (checked offline, **before** any connection is opened or the lock is taken, so a broken checkout never touches the database); a database with tables but no migration history (use `db:baseline` first - the runner never baselines); applied hashes that match no repository migration; a malformed tracking table - one whose structure (columns, types, primary key, triggers) differs from what the migrator creates, including missing `id`/`hash`/`created_at` columns. The structure is checked before any query that assumes those columns, the refusal says "Malformed migration history" (exit 1, not a connection error), and the table is never repaired or recreated automatically; duplicate history rows; applied migrations that are not a prefix of the journal; any case where the migrator's own skip rule (it compares only against the latest `created_at`) would skip a pending migration or re-run an applied one (the same discrepancies `db:status` reports). History is never repaired automatically.
@@ -191,5 +201,5 @@ Repository metadata that fails `db:check`'s validation (checked offline, **befor
 
 ## Not covered here (follow-ups)
 
-- Replacing `PGLITE_AUTO_MIGRATE` replay with the tracked migrator, and the test helper (`tests/helpers/migration-helper.ts`, unchanged).
+- The test helper (`tests/helpers/migration-helper.ts`) still replays the SQL files into an in-memory PGlite.
 - Untracking `.pglite-storage` from git and a CI job that applies migrations to a throwaway Postgres.

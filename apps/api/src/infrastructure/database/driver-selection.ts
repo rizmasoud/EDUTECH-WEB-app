@@ -1,31 +1,23 @@
 /**
- * Explicit database driver selection.
+ * Database selection: PostgreSQL is the only supported runtime database.
  *
- * Pure function of the environment: it never connects to anything and never
- * looks at whether a connection succeeds. The driver chosen here is the driver
- * used; a failed PostgreSQL connection must never change it.
+ * Pure function of the environment: it never connects to anything. There is no fallback
+ * engine; missing or unusable configuration fails with an actionable error.
  *
- * Supported configuration (see docs/migrations.md):
- *   DATABASE_DRIVER=postgres + DATABASE_URL=postgres(ql)://...   (explicit, preferred)
- *   DATABASE_DRIVER=pglite                                       (embedded, non-production only)
- * Legacy inference (kept for compatibility, reported as a warning):
- *   DATABASE_URL=postgres(ql)://...   -> postgres
- *   DATABASE_URL=pglite | USE_PGLITE=true -> pglite
- *   nothing configured, non-production   -> pglite
+ * Required configuration (see .env.example and docs/migrations.md):
+ *   DATABASE_URL=postgres(ql)://...      (required)
+ *   DATABASE_DRIVER=postgres             (recommended; required by db:migrate / db:baseline)
+ * PGlite (DATABASE_DRIVER=pglite, DATABASE_URL=pglite, USE_PGLITE=true) is rejected. It remains
+ * only as an in-memory engine inside tests and the baseline tooling.
  */
-export type DatabaseDriver = 'postgres' | 'pglite';
+export type DatabaseDriver = 'postgres';
 
-export type DriverSource =
-  | 'DATABASE_DRIVER'
-  | 'DATABASE_URL'
-  | 'USE_PGLITE'
-  | 'implicit-default';
+export type DriverSource = 'DATABASE_DRIVER' | 'DATABASE_URL';
 
 export interface DriverSelection {
   driver: DatabaseDriver;
   source: DriverSource;
-  /** Present only for the postgres driver. */
-  connectionString?: string;
+  connectionString: string;
   warnings: string[];
 }
 
@@ -62,82 +54,36 @@ export function parseBooleanFlag(name: string, value: string | undefined, defaul
   throw new DatabaseConfigError(`${name} must be "true" or "false" (got "${value}")`);
 }
 
+const PGLITE_UNSUPPORTED =
+  'PGlite is no longer a supported runtime database. Use PostgreSQL: copy .env.example to .env, ' +
+  'run "docker compose up -d --wait postgres" (or point DATABASE_URL at your own server), ' +
+  'then "pnpm db:migrate --confirm-migrate".';
+
 export function resolveDatabaseDriver(env: EnvLike): DriverSelection {
-  const production = isProductionEnv(env);
   const warnings: string[] = [];
 
   const rawDriver = env.DATABASE_DRIVER?.trim().toLowerCase();
-  if (rawDriver && rawDriver !== 'postgres' && rawDriver !== 'pglite') {
-    throw new DatabaseConfigError(
-      `DATABASE_DRIVER must be "postgres" or "pglite" (got "${env.DATABASE_DRIVER}")`,
-    );
-  }
-
   const url = env.DATABASE_URL?.trim() || undefined;
-  const urlIsPglite = url?.toLowerCase() === 'pglite';
-  const usePgliteFlag = parseBooleanFlag('USE_PGLITE', env.USE_PGLITE);
 
-  const refusePgliteInProduction = () => {
-    if (production) {
-      throw new DatabaseConfigError(
-        'PGlite is not allowed in production. Set DATABASE_DRIVER=postgres and a PostgreSQL DATABASE_URL.',
-      );
-    }
-  };
-  const postgres = (source: DriverSource): DriverSelection => ({
-    driver: 'postgres',
-    source,
-    connectionString: url,
-    warnings,
-  });
-  const pglite = (source: DriverSource): DriverSelection => {
-    refusePgliteInProduction();
-    return { driver: 'pglite', source, warnings };
-  };
-
-  if (rawDriver === 'postgres') {
-    if (!url || !isPostgresUrl(url)) {
-      throw new DatabaseConfigError(
-        'DATABASE_DRIVER=postgres requires DATABASE_URL to be a postgres:// or postgresql:// URL.',
-      );
-    }
-    if (usePgliteFlag) {
-      throw new DatabaseConfigError('DATABASE_DRIVER=postgres conflicts with USE_PGLITE=true.');
-    }
-    return postgres('DATABASE_DRIVER');
+  if (rawDriver === 'pglite' || url?.toLowerCase() === 'pglite' || parseBooleanFlag('USE_PGLITE', env.USE_PGLITE)) {
+    throw new DatabaseConfigError(PGLITE_UNSUPPORTED);
   }
-
-  if (rawDriver === 'pglite') {
-    if (url && !urlIsPglite) {
-      throw new DatabaseConfigError(
-        'DATABASE_DRIVER=pglite conflicts with a DATABASE_URL pointing at another database. Unset DATABASE_URL (or set it to "pglite").',
-      );
-    }
-    return pglite('DATABASE_DRIVER');
+  if (rawDriver && rawDriver !== 'postgres') {
+    throw new DatabaseConfigError(`DATABASE_DRIVER must be "postgres" (got "${env.DATABASE_DRIVER}")`);
   }
-
-  // --- legacy inference (no DATABASE_DRIVER) ---------------------------------
-  if (urlIsPglite || usePgliteFlag) {
-    warnings.push('Selecting PGlite via DATABASE_URL=pglite / USE_PGLITE is deprecated; set DATABASE_DRIVER=pglite.');
-    if (usePgliteFlag && url && !urlIsPglite) {
-      warnings.push('USE_PGLITE=true overrides the configured DATABASE_URL; the PostgreSQL URL is ignored.');
-    }
-    return pglite(usePgliteFlag ? 'USE_PGLITE' : 'DATABASE_URL');
-  }
-  if (url) {
-    if (!isPostgresUrl(url)) {
-      throw new DatabaseConfigError(
-        'DATABASE_URL must be a postgres:// or postgresql:// URL (or "pglite" for the embedded engine).',
-      );
-    }
-    warnings.push('Driver inferred from DATABASE_URL; set DATABASE_DRIVER=postgres to make it explicit.');
-    return postgres('DATABASE_URL');
-  }
-  if (production) {
+  if (!url) {
     throw new DatabaseConfigError(
-      'No database configured in production. Set DATABASE_DRIVER=postgres and DATABASE_URL.',
+      'DATABASE_URL is not set. PostgreSQL is required: copy .env.example to .env (it defines DATABASE_DRIVER=postgres ' +
+        'and a local DATABASE_URL), start the database with "docker compose up -d --wait postgres", ' +
+        'or export DATABASE_URL for your own PostgreSQL server.',
     );
   }
-  warnings.push('No database configured; using the embedded PGlite engine. Set DATABASE_DRIVER explicitly.');
-  return pglite('implicit-default');
+  if (!isPostgresUrl(url)) {
+    throw new DatabaseConfigError('DATABASE_URL must be a postgres:// or postgresql:// URL.');
+  }
+  if (rawDriver === 'postgres') {
+    return { driver: 'postgres', source: 'DATABASE_DRIVER', connectionString: url, warnings };
+  }
+  warnings.push('DATABASE_DRIVER is not set; using PostgreSQL from DATABASE_URL. Set DATABASE_DRIVER=postgres to make it explicit.');
+  return { driver: 'postgres', source: 'DATABASE_URL', connectionString: url, warnings };
 }

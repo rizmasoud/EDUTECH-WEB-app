@@ -1,8 +1,15 @@
-version: '3.8'
-
+# EduTech Web - local PostgreSQL (the only supported runtime database).
+#
+# Start:   docker compose up -d --wait postgres      (or: pnpm db:up)
+# Stop:    docker compose stop postgres              (data is kept)
+# DANGER:  `docker compose down -v` or `docker volume rm` DELETES the database. Never run them
+#          unless you intend to erase all data.
+#
+# Credentials below are LOCAL DEVELOPMENT PLACEHOLDERS. Override them in .env (see .env.example);
+# never reuse them anywhere that is not your own machine.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine   # same major version as CI and the verified schema tooling
     container_name: edutech-postgres
     restart: unless-stopped
     environment:
@@ -10,15 +17,18 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edutech_password}
       POSTGRES_DB: ${POSTGRES_DB:-edutech_db}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Loopback only: reachable from this machine / Codespace, not from other hosts.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
+      # Named volume: data survives container restarts and re-creation.
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edutech_user} -d ${POSTGRES_DB:-edutech_db}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
 volumes:
   postgres_data:

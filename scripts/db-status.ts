@@ -84,10 +84,6 @@ async function main(): Promise<number> {
       }
     } else {
       const selection = resolveDatabaseDriver(process.env);
-      if (selection.driver !== 'postgres') {
-        console.error('Selected driver is PGlite; pass --pglite-dir <dir> to inspect a specific PGlite directory.');
-        return 2;
-      }
       const url = selection.connectionString as string;
       target = `PostgreSQL ${maskConnectionString(url)}`;
       report = await withPostgresReader(url, (r) => inspectMigrations(r, migrationsDir));

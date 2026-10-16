@@ -7,10 +7,10 @@ export const envSchema = z.object({
     .default('4000')
     .transform((val) => parseInt(val, 10)),
   API_PREFIX: z.string().optional().default(''),
-  // No default on purpose: a silent default URL used to hide misconfiguration
-  // (the provider fell back to PGlite when it could not connect). The driver is
-  // chosen explicitly; see infrastructure/database/driver-selection.ts.
-  DATABASE_DRIVER: z.enum(['postgres', 'pglite']).optional(),
+  // PostgreSQL is the only supported runtime database. No defaults on purpose: a silent default
+  // used to hide misconfiguration. Validation and actionable errors live in
+  // infrastructure/database/driver-selection.ts (kept free-form here so the user sees that message).
+  DATABASE_DRIVER: z.string().optional(),
   DATABASE_URL: z.string().optional(),
 });
 
