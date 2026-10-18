@@ -5,9 +5,8 @@
   "scripts": {
     "prebuild": "pnpm --filter @edutech/shared build",
     "build": "nest build",
-    "postbuild": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/api/src', {recursive:true}); fs.writeFileSync('dist/apps/api/src/main.js', 'require(\\\"../../../main.js\\\");\\\\n');\"",
     "dev": "nest start --watch",
-    "start": "node dist/main.js",
+    "start": "node dist/apps/api/src/main.js",
     "lint": "eslint src/",
     "test": "tsx --tsconfig tsconfig.json --test ../../tests/unit/*.spec.ts ../../tests/integration/*.spec.ts",
     "drizzle:generate": "drizzle-kit generate",
