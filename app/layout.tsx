@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EduTech Academic Suite",
-  description: "Comprehensive school management, automated timetable generation, syllabus tracking, attendance, and administrative dashboard.",
+  title: "EduTech | مدیریت آموزشگاه",
+  description: "سامانه مدیریت آموزشگاه زبان: کلاس‌ها، دانش‌آموزان، معلم‌ها و زمان‌بندی.",
 };
 
 export default function RootLayout({
@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="fa" dir="rtl">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
         {children}
       </body>

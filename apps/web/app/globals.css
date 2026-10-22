@@ -1,1 +1,46 @@
 @import "tailwindcss";
+
+/*
+ * EduTech Web - design foundation (RTL-first, Persian).
+ * Single source of truth: the root `app/globals.css` imports this file.
+ *
+ * Font: Vazirmatn (SIL Open Font License 1.1), self-hosted from /public/fonts.
+ * No third-party font request is made at runtime. License: /fonts/Vazirmatn-OFL.txt
+ */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("/fonts/Vazirmatn-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, "Segoe UI", Tahoma, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* Persian text needs more line height than Latin text. */
+    line-height: 1.75;
+    font-feature-settings: "kern" 1;
+  }
+
+  /* Visible keyboard focus for every interactive element. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-indigo-500);
+    outline-offset: 2px;
+  }
+
+  /*
+   * Values that must stay left-to-right inside RTL text (personnel codes, identifiers,
+   * technical values). Use dir="ltr" on the element; this keeps its text-align natural.
+   */
+  [dir="ltr"] {
+    unicode-bidi: isolate;
+  }
+}

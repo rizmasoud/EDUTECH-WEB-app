@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient, StudentItem, EnrollmentItem } from '../../lib/api-client';
 import { formatPersianDate } from '../../../../lib/utils';
 import { getClassDisplayName } from '../../lib/scheduling-utils';
@@ -22,9 +22,11 @@ import {
 
 interface StudentsManagerProps {
   isSupervisor?: boolean;
+  /** Increment to ask this screen to open its "create student" form once (used by Overview's next action). */
+  createRequestKey?: number;
 }
 
-export function StudentsManager({ isSupervisor = true }: StudentsManagerProps) {
+export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: StudentsManagerProps) {
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -84,6 +86,16 @@ export function StudentsManager({ isSupervisor = true }: StudentsManagerProps) {
     setFormIsActive(true);
     setIsModalOpen(true);
   };
+
+  // Open the create form once per request, after the first load has finished.
+  const handledCreateRequest = useRef(0);
+  useEffect(() => {
+    if (isSupervisor && createRequestKey > 0 && createRequestKey !== handledCreateRequest.current && !loading) {
+      handledCreateRequest.current = createRequestKey;
+      openCreateModal();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequestKey, loading, isSupervisor]);
 
   const openEditModal = (student: StudentItem) => {
     setEditingStudent(student);
