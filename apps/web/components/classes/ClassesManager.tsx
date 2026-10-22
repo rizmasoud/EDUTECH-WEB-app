@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   apiClient,
   ClassItem,
@@ -38,6 +38,8 @@ interface ClassesManagerProps {
   onSelectTerm?: (term: AcademicTerm) => void;
   onGoToScheduling?: (classItem: ClassItem) => void;
   isSupervisor?: boolean;
+  /** Increment to ask this screen to open its "create class" form once (used by Overview's next action). */
+  createRequestKey?: number;
 }
 
 export function ClassesManager({
@@ -46,6 +48,7 @@ export function ClassesManager({
   onSelectTerm,
   onGoToScheduling,
   isSupervisor = true,
+  createRequestKey = 0,
 }: ClassesManagerProps) {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [books, setBooks] = useState<BookItem[]>([]);
@@ -56,7 +59,12 @@ export function ClassesManager({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Filters
-  const [selectedTermId, setSelectedTermId] = useState<string>(activeTerm?.id || '');
+  // The term is owned by the app shell (header selector). This screen follows it and changes it through
+  // `onSelectTerm`, so the header and this screen can never disagree.
+  const selectedTermId = activeTerm?.id ?? '';
+  // Term the rows in `classes` were loaded for; rows of another term are never rendered.
+  const [listTermId, setListTermId] = useState<string | null>(null);
+  const fetchGeneration = useRef(0);
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('');
 
@@ -79,37 +87,41 @@ export function ClassesManager({
   const [formSegmentId, setFormSegmentId] = useState('');
 
   const fetchClassesAndMetadata = async () => {
+    const generation = ++fetchGeneration.current;
+    const requestedTermId = selectedTermId;
     setLoading(true);
     setError(null);
     try {
       const [classesList, booksList, teachersRes] = await Promise.all([
-        apiClient.getClasses({
-          academicTermId: selectedTermId || undefined,
-          teacherId: selectedTeacherFilter || undefined,
-          status: selectedStatusFilter || undefined,
-        }),
+        // Without a selected term there is nothing to list: never fall back to "all terms".
+        requestedTermId
+          ? apiClient.getClasses({
+              academicTermId: requestedTermId,
+              teacherId: selectedTeacherFilter || undefined,
+              status: selectedStatusFilter || undefined,
+            })
+          : Promise.resolve([] as ClassItem[]),
         apiClient.getBooks(),
         apiClient.getTeachers({ pageSize: 100 }),
       ]);
+      if (generation !== fetchGeneration.current) return; // a newer request superseded this one
       setClasses(classesList);
+      setListTermId(requestedTermId);
       setBooks(booksList);
       setTeachers(teachersRes.items);
       if (booksList.length > 0 && !formBookId) {
         setFormBookId(booksList[0].id);
       }
     } catch (err: any) {
+      if (generation !== fetchGeneration.current) return;
+      // Do not keep rows that may belong to another term.
+      setClasses([]);
+      setListTermId(requestedTermId);
       setError(err.message || 'Failed to fetch classes data');
     } finally {
-      setLoading(false);
+      if (generation === fetchGeneration.current) setLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (activeTerm?.id && !selectedTermId) {
-      setSelectedTermId(activeTerm.id);
-      setFormTermId(activeTerm.id);
-    }
-  }, [activeTerm?.id]);
 
   useEffect(() => {
     fetchClassesAndMetadata();
@@ -149,6 +161,16 @@ export function ClassesManager({
     setFormSegmentId('');
     setIsCreateModalOpen(true);
   };
+
+  // Open the create form once per request, after the first load has finished.
+  const handledCreateRequest = useRef(0);
+  useEffect(() => {
+    if (isSupervisor && createRequestKey > 0 && createRequestKey !== handledCreateRequest.current && !loading) {
+      handledCreateRequest.current = createRequestKey;
+      openCreateModal();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequestKey, loading, isSupervisor]);
 
   const openEditModal = (classItem: ClassItem) => {
     setEditingClass(classItem);
@@ -349,10 +371,12 @@ export function ClassesManager({
           <label className="block text-[11px] font-semibold text-slate-400 mb-1">Academic Term</label>
           <select
             value={selectedTermId}
-            onChange={(e) => setSelectedTermId(e.target.value)}
+            onChange={(e) => {
+              const next = terms.find((t) => t.id === e.target.value);
+              if (next) onSelectTerm?.(next);
+            }}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
           >
-            <option value="">All Academic Terms</option>
             {terms.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} ({t.status})
@@ -401,10 +425,14 @@ export function ClassesManager({
 
       {/* Classes Table */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-        {loading ? (
+        {loading || listTermId !== selectedTermId ? (
           <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
             <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
             <span className="text-xs">Loading class sections...</span>
+          </div>
+        ) : error ? (
+          <div className="p-12 text-center text-xs text-slate-400">
+            The class list could not be loaded. Use the refresh button to try again.
           </div>
         ) : classes.length === 0 ? (
           <div className="p-12 text-center text-slate-500">

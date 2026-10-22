@@ -128,6 +128,28 @@ export interface ClassItem {
   };
 }
 
+/**
+ * Class as the API actually returns it: the roster size is `activeEnrollmentCount`
+ * (see ClassResponseDto in apps/api/src/classes/application/dto/class.dto.ts).
+ */
+export type ApiClassItem = Omit<ClassItem, 'enrolledCount'> & {
+  activeEnrollmentCount?: number | null;
+  enrolledCount?: number | null;
+};
+
+/**
+ * Map an API class into the frontend model at the client boundary. `enrolledCount` is only set when the API
+ * supplied a real number (list/detail/create responses do; some update responses omit it). A missing count
+ * stays undefined so screens can say "unknown" instead of showing a made-up zero.
+ */
+export function normalizeClassItem(raw: ApiClassItem): ClassItem {
+  const { activeEnrollmentCount, enrolledCount, ...rest } = raw;
+  const count = [activeEnrollmentCount, enrolledCount].find(
+    (v): v is number => typeof v === 'number' && Number.isFinite(v),
+  );
+  return count === undefined ? (rest as ClassItem) : { ...(rest as ClassItem), enrolledCount: count };
+}
+
 export interface EnrollmentItem {
   id: string;
   classId: string;
@@ -303,6 +325,11 @@ class ApiClient {
     }
 
     return body;
+  }
+
+  /** Request that returns a single class, mapped from the API shape to the frontend model. */
+  private async requestClass(endpoint: string, options: RequestInit = {}): Promise<ClassItem> {
+    return normalizeClassItem(await this.request<ApiClassItem>(endpoint, options));
   }
 
   // Auth APIs
@@ -533,11 +560,12 @@ class ApiClient {
     params.set('pageSize', (filter.pageSize || 100).toString());
 
     const res = await this.request<any>(`/classes?${params.toString()}`);
-    return Array.isArray(res) ? res : res?.items || [];
+    const items: ApiClassItem[] = Array.isArray(res) ? res : res?.items || [];
+    return items.map(normalizeClassItem);
   }
 
   async getClassById(id: string): Promise<ClassItem> {
-    return this.request<ClassItem>(`/classes/${id}`);
+    return normalizeClassItem(await this.request<ApiClassItem>(`/classes/${id}`));
   }
 
   async createClass(data: {
@@ -551,7 +579,7 @@ class ApiClient {
     capacity?: number;
     color?: string | null;
   }): Promise<ClassItem> {
-    return this.request<ClassItem>('/classes', {
+    return this.requestClass('/classes', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -569,26 +597,26 @@ class ApiClient {
       color?: string | null;
     },
   ): Promise<ClassItem> {
-    return this.request<ClassItem>(`/classes/${id}`, {
+    return this.requestClass(`/classes/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   async activateClass(id: string): Promise<ClassItem> {
-    return this.request<ClassItem>(`/classes/${id}/activate`, {
+    return this.requestClass(`/classes/${id}/activate`, {
       method: 'POST',
     });
   }
 
   async completeClass(id: string): Promise<ClassItem> {
-    return this.request<ClassItem>(`/classes/${id}/complete`, {
+    return this.requestClass(`/classes/${id}/complete`, {
       method: 'POST',
     });
   }
 
   async cancelClass(id: string): Promise<ClassItem> {
-    return this.request<ClassItem>(`/classes/${id}/cancel`, {
+    return this.requestClass(`/classes/${id}/cancel`, {
       method: 'POST',
     });
   }

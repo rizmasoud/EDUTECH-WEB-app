@@ -1,22 +1,20 @@
 'use client';
 
+import { Button } from '@/apps/web/components/ui/Button';
+
 export default function Error({
-  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4">
-      <h2 className="text-2xl font-bold mb-2">Something went wrong!</h2>
-      <button
-        type="button"
-        onClick={() => reset()}
-        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-500 transition mt-4"
-      >
-        Try again
-      </button>
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <h1 className="text-xl font-bold text-slate-900">مشکلی پیش آمد</h1>
+      <p className="mt-1 text-sm text-slate-600">صفحه بارگذاری نشد. دوباره تلاش کنید.</p>
+      <Button variant="primary" className="mt-5" onClick={() => reset()}>
+        تلاش دوباره
+      </Button>
     </div>
   );
 }

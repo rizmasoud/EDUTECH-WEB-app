@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { apiClient } from '../lib/api-client';
 import type {
   UserAccount,
@@ -9,7 +9,15 @@ import type {
   Schedule,
   SchedulingProposal,
 } from '../lib/api-client';
-import { SchedulingHeader } from '../components/scheduling/SchedulingHeader';
+import { AppShell, type NavItem } from '../components/shell/AppShell';
+import { OverviewPage } from '../components/overview/OverviewPage';
+import { LoginView } from '../components/auth/LoginView';
+import { LoadingState } from '../components/ui/LoadingState';
+import { Toast } from '../components/ui/Toast';
+import { ErrorBanner } from '../components/ui/ErrorBanner';
+import { AppDataController, classesMatchTerm } from '../lib/app-data-controller';
+import { describeLoginError } from '../lib/auth-errors';
+import { PROPOSAL_STATUS_LABEL } from '../lib/labels';
 import { WeeklyTimetable } from '../components/scheduling/WeeklyTimetable';
 import { ClassesOverview } from '../components/scheduling/ClassesOverview';
 import { ProposalGeneratorModal } from '../components/scheduling/ProposalGeneratorModal';
@@ -25,45 +33,77 @@ import { ClassesManager } from '../components/classes/ClassesManager';
 import { getClassDisplayName } from '../lib/scheduling-utils';
 import {
   Calendar,
+  CalendarRange,
   Layers,
   Sparkles,
-  Server,
-  Database,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  RefreshCw,
   Plus,
   BookOpen,
   Users,
   GraduationCap,
-  LayoutGrid,
-  X,
-  Shield,
-  LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
+
+type MainSection =
+  | 'OVERVIEW'
+  | 'SCHEDULING'
+  | 'TERMS'
+  | 'BOOKS'
+  | 'STUDENTS'
+  | 'TEACHERS'
+  | 'CLASSES';
+
+/** Supervisor navigation. Labels are fixed product terminology. */
+const SUPERVISOR_NAV: NavItem[] = [
+  { id: 'OVERVIEW', label: 'نمای کلی', icon: LayoutDashboard },
+  { id: 'SCHEDULING', label: 'زمان‌بندی', icon: Calendar },
+  { id: 'CLASSES', label: 'کلاس‌ها', icon: Layers },
+  { id: 'STUDENTS', label: 'دانش‌آموزان', icon: GraduationCap },
+  { id: 'TEACHERS', label: 'معلم‌ها', icon: Users },
+  { id: 'BOOKS', label: 'کتاب‌ها', icon: BookOpen },
+  { id: 'TERMS', label: 'ترم‌ها', icon: CalendarRange },
+];
+
+/** The teacher experience stays the existing read-only schedule portal: one destination. */
+const TEACHER_NAV: NavItem[] = [{ id: 'SCHEDULING', label: 'برنامه هفتگی', icon: Calendar }];
+
+/**
+ * Screens that have not been redesigned yet keep their original (English, left-to-right) layout.
+ * They render inside this wrapper so the new RTL shell does not mirror layouts that were built for LTR.
+ * Remove the wrapper from a screen when that screen is redesigned.
+ */
+function LegacyArea({ children }: { children: React.ReactNode }) {
+  return <div dir="ltr">{children}</div>;
+}
 
 export default function SchedulingAppPage() {
   // Authentication & Role State - RBAC strictly derived from authenticated session
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginPersonnelCode, setLoginPersonnelCode] = useState('SUP-01');
-  const [loginPassword, setLoginPassword] = useState('SupervisorPass123!');
+  // Credentials are typed by the user. Nothing is pre-filled and nothing is sent automatically.
+  const [loginPersonnelCode, setLoginPersonnelCode] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Main Section Navigation
-  const [mainSection, setMainSection] = useState<
-    'SCHEDULING' | 'TERMS' | 'BOOKS' | 'STUDENTS' | 'TEACHERS' | 'CLASSES'
-  >('CLASSES');
-
-  // Academic Reference & Entity State
-  const [terms, setTerms] = useState<AcademicTerm[]>([]);
-  const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(null);
-  const [classes, setClasses] = useState<ClassItem[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [proposals, setProposals] = useState<SchedulingProposal[]>([]);
-  const [activeProposal, setActiveProposal] = useState<SchedulingProposal | null>(null);
+  const [mainSection, setMainSection] = useState<MainSection>('OVERVIEW');
+  // Incremented by Overview's next actions to open a screen's "create" form once.
+  const [createClassRequest, setCreateClassRequest] = useState(0);
+  const [createStudentRequest, setCreateStudentRequest] = useState(0);
+  // Shared domain data (terms, the selected term and everything scoped to it). It lives in a controller
+  // rather than in effects so that a refresh can never retrigger itself (see lib/app-data-controller.ts).
+  const [dataController] = useState(() => new AppDataController(apiClient));
+  const data = useSyncExternalStore(
+    dataController.subscribe,
+    dataController.getSnapshot,
+    dataController.getSnapshot,
+  );
+  const { terms, activeTerm, classes, schedules, proposals, activeProposal } = data;
+  const setActiveProposal = useCallback(
+    (proposal: SchedulingProposal | null) => dataController.setActiveProposal(proposal),
+    [dataController],
+  );
+  // True only when the loaded classes belong to the selected term.
+  const classesBelongToTerm = classesMatchTerm(data);
 
   // UI Navigation State (Scheduling Subtabs)
   const [activeTab, setActiveTab] = useState<
@@ -84,9 +124,6 @@ export default function SchedulingAppPage() {
   const [manualModalSchedule, setManualModalSchedule] = useState<Schedule | null>(null);
   const [manualModalDay, setManualModalDay] = useState<number | undefined>(undefined);
 
-  // Health State (Preserving Phase 0)
-  const [healthStatus, setHealthStatus] = useState<any>(null);
-
   // Flash notification helper
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
@@ -100,33 +137,37 @@ export default function SchedulingAppPage() {
     setLoading(true);
     try {
       await apiClient.logout();
-      setCurrentUser(null);
-      setIsLoginModalOpen(true);
-      showNotification('info', 'Logged out successfully.');
+      showNotification('info', 'از حساب کاربری خارج شدید.');
     } catch {
-      setCurrentUser(null);
-      setIsLoginModalOpen(true);
+      // The session may already be gone; either way the user is signed out locally.
     } finally {
+      // Drop everything loaded for the previous user so the next sign-in starts clean.
+      setCurrentUser(null);
+      dataController.reset();
+      setSelectedClassIds([]);
+      setMainSection('OVERVIEW');
+      setLoginPassword('');
+      setAuthError(null);
       setLoading(false);
     }
   };
 
-  // Real Authentication Login
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginPersonnelCode || !loginPassword) {
-      setAuthError('Please enter both personnel code and password.');
+  // Real Authentication Login (only ever runs when the user submits the form)
+  const handleLoginSubmit = async () => {
+    const code = loginPersonnelCode.trim();
+    if (!code || !loginPassword) {
+      setAuthError('کد پرسنلی و رمز عبور را وارد کنید.');
       return;
     }
     setActionLoading(true);
     setAuthError(null);
     try {
-      const res = await apiClient.login(loginPersonnelCode, loginPassword);
+      const res = await apiClient.login(code, loginPassword);
+      setLoginPassword('');
+      setMainSection(res.account.roles?.includes('SUPERVISOR') ? 'OVERVIEW' : 'SCHEDULING');
       setCurrentUser(res.account);
-      setIsLoginModalOpen(false);
-      showNotification('success', `Signed in as ${res.account.personnelCode} (${res.account.roles.join(', ')}).`);
-    } catch (err: any) {
-      setAuthError(err.message || 'Authentication failed. Please verify credentials.');
+    } catch (err) {
+      setAuthError(describeLoginError(err));
     } finally {
       setActionLoading(false);
     }
@@ -138,23 +179,17 @@ export default function SchedulingAppPage() {
 
     async function initAuth() {
       setAuthLoading(true);
+      // Check the current session only. Without a valid session the login form is shown and
+      // no login request is sent automatically.
       try {
         const me = await apiClient.getMe();
         if (isMounted) {
           setCurrentUser(me);
+          if (!me.roles?.includes('SUPERVISOR')) setMainSection('SCHEDULING');
         }
       } catch {
-        // Attempt default Supervisor login for seamless dev/testing
-        try {
-          const res = await apiClient.login('SUP-01', 'SupervisorPass123!');
-          if (isMounted) {
-            setCurrentUser(res.account);
-          }
-        } catch {
-          if (isMounted) {
-            setCurrentUser(null);
-            setIsLoginModalOpen(true);
-          }
+        if (isMounted) {
+          setCurrentUser(null);
         }
       } finally {
         if (isMounted) setAuthLoading(false);
@@ -168,81 +203,28 @@ export default function SchedulingAppPage() {
     };
   }, []);
 
-  // Fetch all domain data
-  const refreshData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // 1. Fetch Terms
-      const termsList = await apiClient.getAcademicTerms();
-      setTerms(termsList);
+  const isSupervisor = currentUser?.roles?.includes('SUPERVISOR') ?? false;
 
-      const chosenTerm =
-        activeTerm && termsList.find((t) => t.id === activeTerm.id)
-          ? activeTerm
-          : termsList.find((t) => t.status === 'ACTIVE') || termsList[0] || null;
-      setActiveTerm(chosenTerm);
-
-      // 2. Fetch Classes for Term
-      const classesList = await apiClient.getClasses({
-        academicTermId: chosenTerm?.id,
-      });
-      setClasses(classesList);
-
-      // 3. Fetch Schedules
-      const schedulesList = await apiClient.getSchedules();
-      setSchedules(schedulesList);
-
-      // 4. Fetch Proposals
-      const proposalsList = await apiClient.getProposals({
-        academicTermId: chosenTerm?.id,
-      });
-      setProposals(proposalsList);
-
-      // If active proposal exists, update it with fresh data
-      if (activeProposal) {
-        const fresh = proposalsList.find((p) => p.id === activeProposal.id);
-        if (fresh) setActiveProposal(fresh);
-      }
-
-      // 5. Query health endpoint
-      try {
-        const hRes = await fetch('/api/health');
-        if (hRes.ok) setHealthStatus(await hRes.json());
-      } catch {
-        // ignore
-      }
-    } catch (err: any) {
-      showNotification('error', `Failed to load scheduling data: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTerm, activeProposal]);
-
-  // Load data once auth is ready
+  // Tell the controller the role before any load. Declared before the load effect: effects run in order.
   useEffect(() => {
-    if (!authLoading) {
-      refreshData();
-    }
-  }, [authLoading, refreshData]);
+    dataController.setSupervisor(isSupervisor);
+  }, [dataController, isSupervisor]);
 
-  // Handle Academic Term Change
-  const handleSelectTerm = async (term: AcademicTerm) => {
-    setActiveTerm(term);
-    setSelectedClassIds([]);
-    setLoading(true);
-    try {
-      const [termClasses, termProposals] = await Promise.all([
-        apiClient.getClasses({ academicTermId: term.id }),
-        apiClient.getProposals({ academicTermId: term.id }),
-      ]);
-      setClasses(termClasses);
-      setProposals(termProposals);
-      setActiveProposal(termProposals[0] || null);
-    } catch (err: any) {
-      showNotification('error', `Failed to load data for term: ${err.message}`);
-    } finally {
-      setLoading(false);
+  // Reload terms, the selected term's data and schedules. Stable identity: it depends on nothing that a
+  // refresh itself changes.
+  const refreshData = useCallback(() => dataController.refresh(), [dataController]);
+
+  // Load data once there is a signed-in user (never on the login screen: every call would be a 401)
+  useEffect(() => {
+    if (!authLoading && currentUser) {
+      void dataController.refresh();
     }
+  }, [authLoading, currentUser, dataController]);
+
+  // Academic term change: the one place the selected term changes (header selector and Classes screen).
+  const handleSelectTerm = async (term: AcademicTerm) => {
+    setSelectedClassIds([]);
+    await dataController.selectTerm(term);
   };
 
   // Class selection for proposal generation
@@ -284,11 +266,11 @@ export default function SchedulingAppPage() {
 
       showNotification(
         'success',
-        `Proposal generated successfully! Evaluated ${evaluatedCount} classes (${validCount} valid, ${conflictedCount} conflicted).`
+        `پیشنهاد زمان‌بندی ساخته شد. ${evaluatedCount} کلاس بررسی شد (${validCount} بدون تداخل، ${conflictedCount} دارای تداخل).`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Generation failed: ${err.message}`);
+      showNotification('error', `ساخت پیشنهاد زمان‌بندی انجام نشد: ${err.message}`);
       throw err;
     } finally {
       setActionLoading(false);
@@ -306,12 +288,12 @@ export default function SchedulingAppPage() {
       showNotification(
         res.isStillValid ? 'success' : 'info',
         res.isStillValid
-          ? 'Proposal revalidated cleanly! All proposed slots meet constraints.'
-          : `Revalidation complete: ${res.conflicts.length} conflict(s) detected.`
+          ? 'پیشنهاد دوباره بررسی شد و همه زمان‌ها بدون تداخل هستند.'
+          : `بررسی دوباره انجام شد: ${res.conflicts.length} تداخل پیدا شد.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Validation check failed: ${err.message}`);
+      showNotification('error', `بررسی پیشنهاد انجام نشد: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -324,14 +306,14 @@ export default function SchedulingAppPage() {
       const res = await apiClient.acceptProposal(proposalId);
       showNotification(
         'success',
-        `Proposal ACCEPTED! ${res.committedSchedulesCount} schedule slot(s) committed to the database.`
+        `پیشنهاد پذیرفته شد و ${res.committedSchedulesCount} زمان کلاس ثبت شد.`
       );
       // Update proposal state
       const updated = await apiClient.getProposalById(proposalId);
       setActiveProposal(updated);
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Failed to accept proposal: ${err.message}`);
+      showNotification('error', `پذیرش پیشنهاد انجام نشد: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -343,10 +325,10 @@ export default function SchedulingAppPage() {
     try {
       const res = await apiClient.rejectProposal(proposalId);
       setActiveProposal(res);
-      showNotification('info', 'Proposal marked as REJECTED.');
+      showNotification('info', 'پیشنهاد رد شد.');
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Failed to reject proposal: ${err.message}`);
+      showNotification('error', `رد پیشنهاد انجام نشد: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -363,11 +345,11 @@ export default function SchedulingAppPage() {
       setActiveProposal(updated);
       showNotification(
         'success',
-        `Slot modified! Proposal updated to status ${updated.status}.`
+        `زمان کلاس ویرایش شد. وضعیت پیشنهاد: ${PROPOSAL_STATUS_LABEL[updated.status] ?? updated.status}.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Slot modification failed: ${err.message}`);
+      showNotification('error', `ویرایش زمان کلاس انجام نشد: ${err.message}`);
       throw err;
     } finally {
       setActionLoading(false);
@@ -432,11 +414,11 @@ export default function SchedulingAppPage() {
       const targetCls = classes.find((c) => c.id === params.classId);
       showNotification(
         'success',
-        `Weekly schedule for "${getClassDisplayName(targetCls, 'Class')}" saved (${params.sessions.length} session${params.sessions.length > 1 ? 's' : ''}/week).`
+        `برنامه هفتگی «${getClassDisplayName(targetCls, 'Class')}» ذخیره شد (${params.sessions.length} جلسه در هفته).`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Failed to save weekly schedule: ${err.message}`);
+      showNotification('error', `ذخیره برنامه هفتگی انجام نشد: ${err.message}`);
       throw err;
     } finally {
       setActionLoading(false);
@@ -462,11 +444,11 @@ export default function SchedulingAppPage() {
       }
       showNotification(
         'success',
-        `All schedule slots removed for "${getClassDisplayName(targetCls, 'Class')}".`
+        `همه زمان‌های «${getClassDisplayName(targetCls, 'Class')}» حذف شد.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Failed to remove schedules: ${err.message}`);
+      showNotification('error', `حذف زمان‌ها انجام نشد: ${err.message}`);
       throw err;
     } finally {
       setActionLoading(false);
@@ -491,7 +473,7 @@ export default function SchedulingAppPage() {
         startsOn: data.startsOn,
         endsOn: data.endsOn,
       });
-      showNotification('success', 'Class schedule updated successfully.');
+      showNotification('success', 'زمان کلاس به‌روزرسانی شد.');
     } else {
       await apiClient.createSchedule({
         classId: data.classId,
@@ -501,7 +483,7 @@ export default function SchedulingAppPage() {
         startsOn: data.startsOn,
         endsOn: data.endsOn,
       });
-      showNotification('success', 'New schedule slot created successfully.');
+      showNotification('success', 'زمان جدید برای کلاس ثبت شد.');
     }
     await refreshData();
   };
@@ -511,10 +493,10 @@ export default function SchedulingAppPage() {
     if (!confirm('Are you sure you want to remove this schedule slot?')) return;
     try {
       await apiClient.deleteSchedule(schedule.id);
-      showNotification('success', 'Schedule slot removed.');
+      showNotification('success', 'زمان کلاس حذف شد.');
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `Failed to delete schedule: ${err.message}`);
+      showNotification('error', `حذف زمان کلاس انجام نشد: ${err.message}`);
     }
   };
 
@@ -540,149 +522,104 @@ export default function SchedulingAppPage() {
     setIsManualModalOpen(true);
   };
 
-  // Derived counts
-  const scheduledClassIds = new Set(schedules.map((s) => s.classId));
-  const scheduledCount = classes.filter((c) => scheduledClassIds.has(c.id)).length;
-  const unscheduledCount = classes.length - scheduledCount;
-  const isSupervisor = currentUser?.roles?.includes('SUPERVISOR') ?? false;
+  const toast = notification ? (
+    <Toast type={notification.type} message={notification.message} onDismiss={() => setNotification(null)} />
+  ) : null;
 
+  // 1. Checking the existing session (no login request is ever sent from here).
+  if (authLoading) {
+    return (
+      <div className="min-h-screen">
+        <LoadingState label="در حال بررسی ورود…" />
+      </div>
+    );
+  }
+
+  // 2. No valid session: show the login form.
+  if (!currentUser) {
+    return (
+      <>
+        <LoginView
+          personnelCode={loginPersonnelCode}
+          password={loginPassword}
+          onPersonnelCodeChange={setLoginPersonnelCode}
+          onPasswordChange={setLoginPassword}
+          onSubmit={handleLoginSubmit}
+          submitting={actionLoading}
+          error={authError}
+        />
+        {toast}
+      </>
+    );
+  }
+
+  // 3. Signed in: one shell (labeled navigation + one header) around the active screen.
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      {/* 1. Header with Role & Stats */}
-      <SchedulingHeader
+    <>
+      <AppShell
+        items={isSupervisor ? SUPERVISOR_NAV : TEACHER_NAV}
+        activeId={isSupervisor ? mainSection : 'SCHEDULING'}
+        onNavigate={(id) => setMainSection(id as MainSection)}
         user={currentUser}
-        activeTerm={activeTerm}
         terms={terms}
+        activeTerm={activeTerm}
         onSelectTerm={handleSelectTerm}
-        onLogout={handleLogout}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
         onRefresh={refreshData}
-        loading={loading}
-        totalClasses={classes.length}
-        scheduledCount={scheduledCount}
-        unscheduledCount={unscheduledCount}
-      />
+        onLogout={handleLogout}
+        loading={loading || data.loading}
+      >
+        {/* Failed loads stay visible (Overview renders its own); never let a failure look like an empty list */}
+        {data.error && !(isSupervisor && mainSection === 'OVERVIEW') ? (
+          <ErrorBanner message={data.error} onRetry={refreshData} />
+        ) : null}
 
-      {/* Notification Toast */}
-      {notification && (
-        <div
-          className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-xs font-medium transition-all ${
-            notification.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : notification.type === 'error'
-              ? 'bg-rose-50 border-rose-200 text-rose-800'
-              : 'bg-indigo-50 border-indigo-200 text-indigo-800'
-          }`}
-        >
-          {notification.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-          {notification.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600" />}
-          {notification.type === 'info' && <Clock className="w-4 h-4 text-indigo-600" />}
-          <span>{notification.message}</span>
-        </div>
-      )}
-
-      {/* Main Workspace Container */}
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 space-y-6">
-        {/* If in Teacher Role: display specialized Teacher Schedule View */}
+        {/* Teacher role: the existing read-only schedule portal, unchanged */}
         {!isSupervisor ? (
-          <TeacherScheduleView
-            user={currentUser}
-            classes={classes}
-            schedules={schedules}
-          />
+          <LegacyArea>
+            <TeacherScheduleView
+              user={currentUser}
+              classes={classes}
+              schedules={schedules}
+            />
+          </LegacyArea>
         ) : (
-          /* Supervisor Workflow View */
-          <div className="space-y-6">
-            {/* Top-Level Domain Section Navigation */}
-            <div className="bg-white border border-slate-200 rounded-xl p-2 shadow-2xs">
-              <nav className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setMainSection('CLASSES')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'CLASSES'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <Layers className="w-4 h-4" />
-                  <span>Classes & Rosters</span>
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] ${
-                      mainSection === 'CLASSES' ? 'bg-indigo-700 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {classes.length}
-                  </span>
-                </button>
+          <>
+            {mainSection === 'OVERVIEW' && (
+              <OverviewPage
+                term={activeTerm}
+                classes={classes}
+                schedules={schedules}
+                proposals={proposals}
+                loading={!data.loaded || (data.loading && !classesBelongToTerm)}
+                loadError={data.error}
+                dataMatchesTerm={classesBelongToTerm}
+                onRetry={refreshData}
+                onGoToClasses={() => setMainSection('CLASSES')}
+                onGoToUnscheduled={() => {
+                  setActiveTab('OVERVIEW');
+                  setMainSection('SCHEDULING');
+                }}
+                onReviewProposal={(proposal) => {
+                  setActiveProposal(proposal);
+                  setActiveTab('PROPOSAL');
+                  setMainSection('SCHEDULING');
+                }}
+                onAddClass={() => {
+                  setMainSection('CLASSES');
+                  setCreateClassRequest((n) => n + 1);
+                }}
+                onAddStudent={() => {
+                  setMainSection('STUDENTS');
+                  setCreateStudentRequest((n) => n + 1);
+                }}
+                onOpenScheduling={() => setMainSection('SCHEDULING')}
+                onGoToTerms={() => setMainSection('TERMS')}
+              />
+            )}
 
-                <button
-                  type="button"
-                  onClick={() => setMainSection('TERMS')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'TERMS'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>Academic Terms</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMainSection('BOOKS')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'BOOKS'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <BookOpen className="w-4 h-4" />
-                  <span>Books & Curriculum</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMainSection('STUDENTS')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'STUDENTS'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>Students</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMainSection('TEACHERS')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'TEACHERS'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <GraduationCap className="w-4 h-4" />
-                  <span>Teachers & Skills</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMainSection('SCHEDULING')}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                    mainSection === 'SCHEDULING'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Timetable Engine</span>
-                </button>
-              </nav>
-            </div>
-
+            {mainSection !== 'OVERVIEW' && (
+              <LegacyArea>
+                <div className="space-y-6">
             {/* View 1: Academic Terms */}
             {mainSection === 'TERMS' && (
               <AcademicTermsManager
@@ -699,7 +636,9 @@ export default function SchedulingAppPage() {
             {mainSection === 'BOOKS' && <BooksManager isSupervisor={isSupervisor} />}
 
             {/* View 3: Students Management */}
-            {mainSection === 'STUDENTS' && <StudentsManager isSupervisor={isSupervisor} />}
+            {mainSection === 'STUDENTS' && (
+              <StudentsManager isSupervisor={isSupervisor} createRequestKey={createStudentRequest} />
+            )}
 
             {/* View 4: Teachers & Skills */}
             {mainSection === 'TEACHERS' && <TeachersManager isSupervisor={isSupervisor} />}
@@ -716,6 +655,7 @@ export default function SchedulingAppPage() {
                   handleOpenManualFromOverview(classItem);
                 }}
                 isSupervisor={isSupervisor}
+                createRequestKey={createClassRequest}
               />
             )}
 
@@ -901,15 +841,20 @@ export default function SchedulingAppPage() {
                       setActiveTab('PROPOSAL');
                     }}
                     onRefresh={refreshData}
-                    loading={loading}
+                    loading={loading || data.loading}
                   />
                 )}
               </div>
             )}
-          </div>
+                </div>
+              </LegacyArea>
+            )}
+          </>
         )}
-      </main>
+      </AppShell>
 
+      {/* Scheduling modals keep their original layout until the scheduling redesign */}
+      <LegacyArea>
       {/* Generator Modal */}
       <ProposalGeneratorModal
         isOpen={isGeneratorOpen}
@@ -937,124 +882,9 @@ export default function SchedulingAppPage() {
           if (sched) await handleDeleteSchedule(sched);
         }}
       />
+      </LegacyArea>
 
-      {/* Real Auth Login / Account Switch Modal */}
-      {(isLoginModalOpen || !currentUser) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  Authenticate Account
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Sign in with personnel code to establish authenticated session
-                </p>
-              </div>
-              {currentUser && (
-                <button onClick={() => setIsLoginModalOpen(false)} className="text-slate-400 hover:text-white">
-                  <X className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-
-            {authError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
-                <span>{authError}</span>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="block text-slate-300 font-semibold text-xs">Quick Role Account Selection</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginPersonnelCode('SUP-01');
-                    setLoginPassword('SupervisorPass123!');
-                  }}
-                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
-                    loginPersonnelCode === 'SUP-01'
-                      ? 'bg-indigo-600/20 border-indigo-500 text-white'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <span className="font-bold text-xs flex items-center gap-1">
-                    <Shield className="h-3.5 w-3.5 text-indigo-400" />
-                    <span>SUP-01</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400">Supervisor Account</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginPersonnelCode('TCH-01');
-                    setLoginPassword('TeacherPass123!');
-                  }}
-                  className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 ${
-                    loginPersonnelCode === 'TCH-01'
-                      ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <span className="font-bold text-xs flex items-center gap-1">
-                    <Users className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>TCH-01</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400">Teacher Account</span>
-                </button>
-              </div>
-            </div>
-
-            <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Personnel Code *</label>
-                <input
-                  type="text"
-                  value={loginPersonnelCode}
-                  onChange={(e) => setLoginPersonnelCode(e.target.value)}
-                  placeholder="SUP-01 or TCH-01"
-                  required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Password *</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-                {currentUser && (
-                  <button
-                    type="button"
-                    onClick={() => setIsLoginModalOpen(false)}
-                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-medium"
-                  >
-                    Cancel
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition disabled:opacity-50 flex items-center gap-2"
-                >
-                  {actionLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                  <span>Sign In</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+      {toast}
+    </>
   );
 }

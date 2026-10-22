@@ -2,14 +2,14 @@ import Link from "next/link";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4">
-      <h2 className="text-2xl font-bold mb-2">Page Not Found</h2>
-      <p className="text-sm text-slate-400 mb-4">Could not find requested resource.</p>
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <h1 className="text-xl font-bold text-slate-900">صفحه پیدا نشد</h1>
+      <p className="mt-1 text-sm text-slate-600">آدرس واردشده وجود ندارد.</p>
       <Link
         href="/"
-        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-500 transition"
+        className="mt-5 inline-flex h-10 items-center justify-center rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-700"
       >
-        Return Home
+        بازگشت به صفحه اصلی
       </Link>
     </div>
   );
