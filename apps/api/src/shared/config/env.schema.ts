@@ -12,6 +12,8 @@ export const envSchema = z.object({
   // infrastructure/database/driver-selection.ts (kept free-form here so the user sees that message).
   DATABASE_DRIVER: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+  // Only variables listed here are copied from .env into process.env by ConfigModule.
+  DATABASE_CONNECT_RETRY_SECONDS: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
