@@ -1,8 +1,8 @@
-import path from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { validateEnv } from './shared/config/env.schema';
+import { resolveEnvFilePaths } from './shared/config/env-files';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
@@ -21,10 +21,7 @@ import { PayrollModule } from './payroll/payroll.module';
 import { ApiRateLimiterGuard } from './shared/guards/api-rate-limiter.guard';
 import { AuthGuard } from './auth/presentation/guards/auth.guard';
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const ENV_FILE_PATHS = Array.from(
-  new Set(['.env.local', '.env', path.join(REPO_ROOT, '.env.local'), path.join(REPO_ROOT, '.env')]),
-);
+const ENV_FILE_PATHS = resolveEnvFilePaths(process.cwd(), __dirname);
 
 @Module({
   imports: [
