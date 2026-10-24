@@ -64,6 +64,7 @@ edutech-web/
 
 ## 4. Prerequisites
 * **Node.js**: >= 22.0.0 (Node 22 LTS). This is `engines.node` in `package.json` and the project's supported baseline: CI runs on Node 22, and the dependency lockfile contains packages that require Node 22 or later (for example `concurrently` and the Google auth libraries pulled in by `@google/genai`). `pnpm --filter @edutech/api dev` refuses to start on an older Node.
+* **Operating system**: Linux (CI runs on Ubuntu, and the helper scripts in `scripts/` are bash). macOS is expected to work but is not tested by the project. Native Windows is not supported: use WSL2, which provides a Linux environment (the project has not tested WSL2 separately). In particular, `pnpm --filter @edutech/api dev` stops its child processes through POSIX process groups, which Windows does not have; its Windows code path is best effort and untested (see the platform notes in `scripts/dev-api.mjs`).
 * **pnpm**: >= 9.0.0 (`corepack enable` to activate)
 * **Docker & Docker Compose**: For local PostgreSQL 16
 

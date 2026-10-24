@@ -28,8 +28,13 @@
  * silently), so it refuses to start on an older Node instead of missing nested shared files. The guard needs Node 14.8
  * or later to run at all (top-level await); older versions fail with a SyntaxError.
  *
- * Platform notes: process-tree cleanup uses POSIX process groups and was verified on Linux only. The Windows
- * branch (taskkill /T /F) and macOS are untested. SIGKILL of the runner itself cannot be intercepted and leaves
+ * Platform notes: supported and verified on Linux only; macOS is untested; native Windows is not supported (use WSL2).
+ * Process-tree cleanup relies on POSIX process groups, so a child that outlives its group leader is still found and
+ * killed. Windows has no process groups. Its branch kills the tree with `taskkill /T /F` only while the leader is
+ * alive: `taskkill /T` walks the tree from a live process and cannot find the descendants of one that has exited
+ * (documented by libraries such as execa; not verified on Windows by this project), and an exited PID may already
+ * belong to an unrelated process, so calling it with that PID could kill the wrong tree. On Windows a child that
+ * outlives its leader is therefore not cleaned up. SIGKILL of the runner itself cannot be intercepted and leaves
  * its children running.
  *
  * Extra arguments are passed through to `nest start` (for example `--debug`).
@@ -144,6 +149,7 @@ async function stopTreeOnce(child) {
   try {
     if (child.pid === undefined) return;
     if (windows) {
+      // Only while the leader is alive, on purpose: see the platform notes at the top of this file.
       if (child.exitCode === null) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
       await child.done;
       return;
