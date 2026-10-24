@@ -63,7 +63,7 @@ edutech-web/
 ---
 
 ## 4. Prerequisites
-* **Node.js**: >= 20.0.0 (Node 22 LTS recommended)
+* **Node.js**: >= 22.0.0 (Node 22 LTS). This is `engines.node` in `package.json` and the project's supported baseline: CI runs on Node 22, and the dependency lockfile contains packages that require Node 22 or later (for example `concurrently` and the Google auth libraries pulled in by `@google/genai`). `pnpm --filter @edutech/api dev` refuses to start on an older Node.
 * **pnpm**: >= 9.0.0 (`corepack enable` to activate)
 * **Docker & Docker Compose**: For local PostgreSQL 16
 
