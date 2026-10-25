@@ -28,20 +28,32 @@
  * silently), so it refuses to start on an older Node instead of missing nested shared files. The guard needs Node 14.8
  * or later to run at all (top-level await); older versions fail with a SyntaxError.
  *
- * Platform notes: supported and verified on Linux only; macOS is untested; native Windows is not supported (use WSL2).
- * Process-tree cleanup relies on POSIX process groups, so a child that outlives its group leader is still found and
- * killed. Windows has no process groups. Its branch kills the tree with `taskkill /T /F` only while the leader is
- * alive: `taskkill /T` walks the tree from a live process and cannot find the descendants of one that has exited
- * (documented by libraries such as execa; not verified on Windows by this project), and an exited PID may already
- * belong to an unrelated process, so calling it with that PID could kill the wrong tree. On Windows a child that
- * outlives its leader is therefore not cleaned up. SIGKILL of the runner itself cannot be intercepted and leaves
- * its children running.
+ * Process-tree cleanup, in two layers:
+ *  - POSIX: each child is a process group leader, so a signal reaches every member, even after the leader exited.
+ *  - Everywhere (and the only mechanism on Windows, which has no process groups): the lifeline. Each child process tree
+ *    gets a private local socket (a unix socket, or a named pipe on Windows) and scripts/dev-lifeline.js is preloaded
+ *    into every Node.js process of the tree through NODE_OPTIONS. Every guarded process connects, reports its pid and
+ *    exits when the connection ends. To stop a tree the runner closes its side; the runner dying, even by SIGKILL, has
+ *    the same effect. The open connections also tell the runner which processes of a tree are still alive, so it never
+ *    has to look up descendants of a parent that has exited, and a straggler that cannot react (a blocked event loop)
+ *    is killed by the pid it reported: an open connection proves that pid still belongs to that process. `taskkill`
+ *    is only ever called for a leader the runner still holds a handle to, or for such a proven-alive straggler.
+ *    Limits: only Node.js processes are guarded (the `cmd.exe` that `pnpm.cmd` runs through is not, but it exits
+ *    with its child); NODE_OPTIONS must reach the children (it does through pnpm and the Nest CLI); and a process
+ *    that is blocked cannot exit on its own, so it falls back to the kill above after a grace period.
+ *
+ * Platform notes: verified on Linux (see tests/unit/dev-runner-shutdown.spec.ts and scripts/check-dev-runner.mjs).
+ * macOS and native Windows are NOT verified yet: the Windows path (named pipe lifeline, `taskkill` for a live leader or
+ * a proven-alive straggler) is implemented, and the same tests run unchanged on Windows, but they have not been run
+ * there. EDUTECH_DEV_RUNNER_NO_GROUPS=1 makes a POSIX machine use the Windows cleanup path (the tests use it).
  *
  * Extra arguments are passed through to `nest start` (for example `--debug`).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,20 +93,119 @@ requireSupportedNode();
 
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const windows = process.platform === 'win32';
+// Process groups are the POSIX mechanism; without them (Windows, or EDUTECH_DEV_RUNNER_NO_GROUPS=1 to exercise that
+// path on POSIX) the lifeline is the only way to reach descendants.
+const noGroups = windows || process.env.EDUTECH_DEV_RUNNER_NO_GROUPS === '1';
 const sharedDist = path.join(root, 'packages', 'shared', 'dist');
 const POLL_MS = 400;
 const STOP_GRACE_MS = 5000;
+const LIFELINE_GRACE_MS = 3000; // without groups: how long released processes get to exit by themselves before a kill
+const guardFile = path.join(root, 'scripts', 'dev-lifeline.js');
 
-// On POSIX each child runs in its own process group so stopping it also stops the processes it spawned
-// (pnpm -> nest -> the API itself); otherwise a plain SIGTERM would leave the API running.
-const options = { cwd: root, stdio: 'inherit', shell: windows, detached: !windows };
 const nestArgs = ['--filter', '@edutech/api', 'exec', 'nest', 'start', '--watch', ...process.argv.slice(2)];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function waitFor(condition, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) await sleep(50);
+  return condition();
+}
+
 /**
- * Children whose process group may still have members. A child stays here until its group has been seen empty,
- * even after the leader itself exited: that is what lets a shutdown clean up a group that a restart was still stopping.
+ * Lifeline: one private local socket per child process tree (see the header). Every Node.js process of the tree runs
+ * scripts/dev-lifeline.js, connects here and reports its pid. A connection stays open exactly as long as its process
+ * lives, which is what `members` reflects.
+ */
+let socketDir = null; // POSIX: directory of the unix sockets, created on first use and removed when the runner exits
+let lifelineCount = 0;
+
+/** A runner that was SIGKILLed cannot remove its socket directory: remove the ones whose runner (named in it) is gone. */
+function removeStaleSocketDirs() {
+  try {
+    for (const name of fs.readdirSync(os.tmpdir())) {
+      const pid = Number(/^edutech-dev-(\d+)-/.exec(name)?.[1]);
+      if (!Number.isSafeInteger(pid) || pid === process.pid) continue;
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error.code === 'ESRCH') fs.rmSync(path.join(os.tmpdir(), name), { recursive: true, force: true });
+      }
+    }
+  } catch {
+    // best effort
+  }
+}
+const NO_LIFELINE = { env: {}, size: () => 0, livePids: () => [], release() {} };
+
+function makeSocketDir() {
+  removeStaleSocketDirs();
+  return fs.mkdtempSync(path.join(os.tmpdir(), `edutech-dev-${process.pid}-`));
+}
+
+function createLifeline() {
+  if (!fs.existsSync(guardFile)) return NO_LIFELINE;
+  lifelineCount += 1;
+  const address = windows
+    ? `\\\\.\\pipe\\edutech-dev-${process.pid}-${lifelineCount}`
+    : path.join((socketDir ??= makeSocketDir()), `${lifelineCount}.sock`);
+  const members = new Map(); // socket -> { pid }
+  let released = false;
+  const server = net.createServer((socket) => {
+    if (released) {
+      socket.destroy();
+      return;
+    }
+    const entry = { pid: null, buffered: '' };
+    members.set(socket, entry);
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => {
+      if (entry.pid !== null) return;
+      entry.buffered += chunk;
+      const end = entry.buffered.indexOf('\n');
+      const pid = Number(end >= 0 ? entry.buffered.slice(0, end) : NaN);
+      if (Number.isSafeInteger(pid) && pid > 0) entry.pid = pid;
+    });
+    socket.on('close', () => members.delete(socket));
+    socket.on('error', () => {});
+  });
+  server.on('error', () => {});
+  server.listen(address); // binds synchronously: the address exists before the child is started
+  if (!server.listening) {
+    console.error('[dev-api] Could not create the process lifeline; this process tree will not be guarded.');
+    return NO_LIFELINE;
+  }
+  // Forward slashes: NODE_OPTIONS treats a backslash inside quotes as an escape character.
+  const guard = guardFile.split(path.sep).join('/');
+  const nodeOptions = `${process.env.NODE_OPTIONS ?? ''} --require "${guard}"`.trim();
+  return {
+    env: { EDUTECH_DEV_LIFELINE: address, NODE_OPTIONS: nodeOptions },
+    size: () => members.size,
+    /** Pids of processes that are connected right now, hence alive: a pid that is certain to be theirs. */
+    livePids: () => [...members.values()].map((entry) => entry.pid).filter((pid) => pid !== null),
+    /** Ends the tree: stops listening (a process that starts late finds nobody and exits) and closes every connection. */
+    release() {
+      if (released) return;
+      released = true;
+      server.close();
+      for (const socket of members.keys()) socket.end();
+    },
+  };
+}
+
+// On POSIX each child runs in its own process group so stopping it also stops the processes it spawned
+// (pnpm -> nest -> the API itself); otherwise a plain SIGTERM would leave the API running.
+const spawnOptions = (lifeline) => ({
+  cwd: root,
+  stdio: 'inherit',
+  shell: windows,
+  detached: !noGroups,
+  env: { ...process.env, ...lifeline.env },
+});
+
+/**
+ * Children whose process tree may still have members. A child stays here until its tree has been seen empty, even
+ * after the leader itself exited: that is what lets a shutdown clean up a tree that a restart was still stopping.
  */
 const groups = new Set();
 
@@ -115,20 +226,30 @@ function groupAlive(child) {
   }
 }
 
-const groupGone = (child) => windows || child.pid === undefined || !groupAlive(child);
+/** The tree is gone: no process group member (POSIX) or no connected guarded process (lifeline). */
+const groupGone = (child) => child.pid === undefined || (noGroups ? child.lifeline.size() === 0 : !groupAlive(child));
+
+const leaderRunning = (child) => child.exitCode === null && child.signalCode === null;
+
+function forget(child) {
+  groups.delete(child);
+  child.lifeline.release();
+}
 
 function launch(args) {
-  const child = spawn(pnpm, args, options);
+  const lifeline = createLifeline();
+  const child = spawn(pnpm, args, spawnOptions(lifeline));
+  child.lifeline = lifeline;
   child.expected = false; // set before an intentional stop, so its exit is not treated as a crash
   child.stopPromise = null;
   child.done = new Promise((resolve) => {
     child.once('exit', (code, signal) => {
-      // The leader is gone; members of its group may not be. Keep the group until it is seen empty.
-      if (groupGone(child)) groups.delete(child);
+      // The leader is gone; members of its tree may not be. Keep the tree until it is seen empty.
+      if (groupGone(child)) forget(child);
       resolve({ code, signal });
     });
     child.once('error', (error) => {
-      groups.delete(child);
+      forget(child);
       console.error(`[dev-api] Failed to start a child process: ${error.message}`);
       resolve({ code: 1, signal: null });
     });
@@ -143,31 +264,54 @@ function stopTree(child) {
   return child.stopPromise;
 }
 
-/** Returns once the whole group is gone (or SIGKILL was sent and waited for). */
+function taskkill(pid) {
+  spawnSync('taskkill', ['/pid', String(pid), '/T', '/F']);
+}
+
+/**
+ * Stops a tree without process groups. Nothing here ever looks up the descendants of a parent that has exited, and
+ * `taskkill` is only used on a pid that is certain to belong to the intended process:
+ *  1. Release the lifeline: every guarded process exits by itself (this is what reaches a process whose parent is gone).
+ *  2. A leader that is still running (the runner holds its process handle, so its pid cannot have been reused) gets
+ *     `taskkill /T /F`, which walks the tree from a live process.
+ *  3. A member whose connection is still open after that is alive, so the pid it reported is its own: kill it.
+ */
+async function stopWithoutGroups(child) {
+  const lifeline = child.lifeline;
+  const treeGone = () => lifeline.size() === 0 && !leaderRunning(child);
+  lifeline.release();
+  await waitFor(treeGone, LIFELINE_GRACE_MS);
+  if (leaderRunning(child)) taskkill(child.pid);
+  await waitFor(treeGone, 2000);
+  for (const pid of lifeline.livePids()) taskkill(pid);
+  if (!(await waitFor(() => lifeline.size() === 0, 2000))) {
+    console.error('[dev-api] Some processes of a stopped process tree are still running; they may keep a port open.');
+  }
+}
+
+/** POSIX: returns once the whole group is gone (or SIGKILL was sent and waited for). */
+async function stopWithGroups(child) {
+  const deadline = Date.now() + STOP_GRACE_MS;
+  // Repeat the SIGTERM while the group lives: Nest may be spawning a new API at the very moment it is told to stop,
+  // and that new process must not miss the signal.
+  do {
+    signalGroup(child, 'SIGTERM');
+    for (let waited = 0; waited < 250 && groupAlive(child); waited += 50) await sleep(50);
+  } while (groupAlive(child) && Date.now() < deadline);
+  if (groupAlive(child)) {
+    signalGroup(child, 'SIGKILL');
+    const killDeadline = Date.now() + 2000;
+    while (groupAlive(child) && Date.now() < killDeadline) await sleep(50);
+  }
+}
+
 async function stopTreeOnce(child) {
   child.expected = true;
   try {
     if (child.pid === undefined) return;
-    if (windows) {
-      // Only while the leader is alive, on purpose: see the platform notes at the top of this file.
-      if (child.exitCode === null) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-      await child.done;
-      return;
-    }
-    const deadline = Date.now() + STOP_GRACE_MS;
-    // Repeat the SIGTERM while the group lives: Nest may be spawning a new API at the very moment it is told to stop,
-    // and that new process must not miss the signal.
-    do {
-      signalGroup(child, 'SIGTERM');
-      for (let waited = 0; waited < 250 && groupAlive(child); waited += 50) await sleep(50);
-    } while (groupAlive(child) && Date.now() < deadline);
-    if (groupAlive(child)) {
-      signalGroup(child, 'SIGKILL');
-      const killDeadline = Date.now() + 2000;
-      while (groupAlive(child) && Date.now() < killDeadline) await sleep(50);
-    }
+    await (noGroups ? stopWithoutGroups(child) : stopWithGroups(child));
   } finally {
-    groups.delete(child);
+    forget(child);
   }
 }
 
@@ -178,7 +322,7 @@ function shutdown(code) {
   if (shutdownPromise) return shutdownPromise;
   shuttingDown = true;
   shutdownPromise = (async () => {
-    // Every group still known: running children, groups whose leader already exited, and groups a restart is stopping.
+    // Every tree still known: running children, trees whose leader already exited, and trees a restart is stopping.
     while (groups.size > 0) await Promise.all([...groups].map(stopTree));
     process.exit(code);
   })();
@@ -186,10 +330,11 @@ function shutdown(code) {
 }
 
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => void shutdown(0));
-// Last resort if the runner itself dies abnormally (uncaught exception): do not leave the groups behind.
+// Last resort if the runner itself dies abnormally (uncaught exception): do not leave the groups behind. (Without
+// groups the lifeline connections close with this process, which ends the guarded processes.)
 process.on('exit', () => {
-  if (windows) return;
-  for (const child of groups) signalGroup(child, 'SIGKILL');
+  if (!noGroups) for (const child of groups) signalGroup(child, 'SIGKILL');
+  if (socketDir) fs.rmSync(socketDir, { recursive: true, force: true });
 });
 
 function supervise(child, name) {
