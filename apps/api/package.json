@@ -5,7 +5,7 @@
   "scripts": {
     "prebuild": "pnpm --filter @edutech/shared build",
     "build": "nest build",
-    "dev": "nest start --watch",
+    "dev": "node ../../scripts/dev-api.mjs",
     "start": "node dist/apps/api/src/main.js",
     "lint": "eslint src/",
     "test": "tsx --tsconfig tsconfig.json --test ../../tests/unit/*.spec.ts ../../tests/integration/*.spec.ts",

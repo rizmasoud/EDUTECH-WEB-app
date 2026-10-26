@@ -1,7 +1,14 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": false
+    "noEmit": false,
+    // Resolve @edutech/shared through the package itself (node_modules -> packages/shared -> dist/index.js),
+    // exactly as Node does at runtime. The base config maps the alias to the shared SOURCE for tests (tsx) and
+    // editors; under Nest's build that mapping is rewritten into a relative require of the .ts file.
+    "paths": {},
+    // Keep the output layout (dist/apps/api/src/main.js) that `start` and nest-cli.json expect. It used to be
+    // implied by the shared sources being part of the program; now that they are not, pin it explicitly.
+    "rootDir": "../.."
   },
   "include": ["src/**/*"],
   "exclude": [
