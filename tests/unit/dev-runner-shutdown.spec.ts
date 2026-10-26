@@ -50,9 +50,11 @@ const log = (name, text) => fs.appendFileSync(path.join(dir, name), text + '\\n'
 if (args.includes('@edutech/shared build')) {
   process.exit(0);
 } else if (args.includes('exec tsc')) {
+  log('all.pids', String(process.pid));
   setInterval(() => {}, 1000);
 } else if (args.includes('exec nest')) {
   log('events.log', 'nest-start');
+  log('all.pids', String(process.pid));
   log('leaders.pids', String(process.pid));
   const member = spawn(process.execPath, [path.join(dir, 'bin', 'member.js')], { stdio: 'ignore' });
   log('members.pids', String(member.pid));
@@ -100,6 +102,19 @@ async function waitUntil(what: string, condition: () => boolean, timeoutMs: numb
     await sleep(50);
   }
   assert.fail(`Timed out waiting for ${what}`);
+}
+
+/**
+ * Windows only, for a failing cleanup: the processes whose command line points into the sandbox, so that a directory that
+ * cannot be removed names whoever still holds it. (A `cmd.exe` wrapper's command line does not contain the path.)
+ */
+function describeSandboxProcesses(dir: string): string {
+  if (process.platform !== 'win32') return '';
+  const script =
+    `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${dir.replace(/'/g, "''")}*' } | ` +
+    'ForEach-Object { "$($_.ProcessId) (parent $($_.ParentProcessId)) $($_.Name): $($_.CommandLine)" }';
+  const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 15_000 });
+  return (result.stdout ?? '').trim() || '(none found)';
 }
 
 class Sandbox {
@@ -157,7 +172,7 @@ class Sandbox {
     return spawnSync(process.execPath, [this.runner], { cwd: this.dir, env: this.env(), encoding: 'utf8', timeout: 20_000 });
   }
 
-  pids(name: 'leaders' | 'members'): number[] {
+  pids(name: 'leaders' | 'members' | 'all'): number[] {
     try {
       return fs.readFileSync(path.join(this.dir, `${name}.pids`), 'utf8').split('\n').filter(Boolean).map(Number);
     } catch {
@@ -191,33 +206,71 @@ class Sandbox {
     return result as { code: number | null; signal: NodeJS.Signals | null };
   }
 
-  /** Always called: nothing of the fake tree may outlive the test, whatever happened. */
-  dispose(): void {
-    for (const pid of [...this.pids('members'), ...this.pids('leaders')]) {
+  /** Every process of the fake tree that the fakes recorded (watcher, leaders, members). */
+  trackedPids(): number[] {
+    return [...new Set([...this.pids('all'), ...this.pids('leaders'), ...this.pids('members')])];
+  }
+
+  /**
+   * Always called: nothing of the fake tree may outlive the test, whatever happened. Kills what is still running and then
+   * WAITS until it is really gone before removing the directory: every process of the sandbox has it as its working
+   * directory, and on Windows a directory that is some process's working directory cannot be removed, which a process
+   * that was just terminated still is for a moment. The wait is on the condition (the processes are gone, then the
+   * directory can be removed), not on a fixed delay; a process that really survives makes this fail, with its pid.
+   */
+  async dispose(): Promise<void> {
+    const pids = this.trackedPids();
+    const kill = (pid: number) => {
       try {
         process.kill(pid, 'SIGKILL');
       } catch {
         // already gone
       }
-    }
-    if (this.process?.pid && this.process.exitCode === null) {
+    };
+    for (const pid of pids) kill(pid);
+    if (this.process?.pid && this.process.exitCode === null) kill(this.process.pid);
+    await Promise.race([this.exited, sleep(10_000)]);
+    const deadline = Date.now() + 15_000;
+    while (pids.some(isAlive) && Date.now() < deadline) await sleep(50);
+    const survivors = pids.filter(isAlive);
+
+    // The directory is released once the last process that had it as its working directory is gone, including the
+    // `cmd.exe` wrappers that `pnpm.cmd` runs through on Windows (those exit by themselves, and are not tracked).
+    for (let lastError: unknown; ; ) {
       try {
-        process.kill(this.process.pid, 'SIGKILL');
-      } catch {
-        // already gone
+        fs.rmSync(this.dir, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        lastError = error;
+        const code = (error as NodeJS.ErrnoException).code;
+        if ((code !== 'EBUSY' && code !== 'EPERM' && code !== 'ENOTEMPTY') || Date.now() > deadline + 10_000) {
+          const holders = describeSandboxProcesses(this.dir);
+          throw new Error(
+            `could not remove ${this.dir}; tracked processes still running: [${survivors.join(', ')}]; ${String(lastError)}` +
+              (holders ? `\nprocesses with the sandbox in their command line:\n${holders}` : ''),
+          );
+        }
+        await sleep(100);
       }
     }
-    fs.rmSync(this.dir, { recursive: true, force: true });
+    assert.deepEqual(survivors, [], 'processes of the fake tree survived the test');
   }
 }
 
-async function withSandbox(fn: (sandbox: Sandbox) => Promise<void>): Promise<void> {
-  const sandbox = new Sandbox();
+/** Runs the body, then always cleans up; a cleanup problem never hides a failure of the body. */
+async function runInSandbox(sandbox: Sandbox, fn: (sandbox: Sandbox) => Promise<void>): Promise<void> {
   try {
     await fn(sandbox);
-  } finally {
-    sandbox.dispose();
+  } catch (error) {
+    // The failure of the body is the one to report; a cleanup problem on top of it is logged, not lost.
+    await sandbox.dispose().catch((cleanupError) => console.error(`[spec] cleanup after a failed test also failed: ${cleanupError}`));
+    throw error;
   }
+  await sandbox.dispose();
+}
+
+async function withSandbox(fn: (sandbox: Sandbox) => Promise<void>): Promise<void> {
+  await runInSandbox(new Sandbox(), fn);
 }
 
 describe('dev runner shutdown', { skip: posixOnly }, () => {
@@ -283,7 +336,7 @@ describe('dev runner shutdown', { skip: posixOnly }, () => {
 });
 
 describe('dev runner Node version guard', { skip: posixOnly }, () => {
-  it('refuses to start on a Node older than engines.node, and says why, before starting anything', () => {
+  it('refuses to start on a Node older than engines.node, and says why, before starting anything', async () => {
     const sb = new Sandbox({ node: '>=999.0.0' });
     try {
       const result = sb.runToExit();
@@ -294,11 +347,11 @@ describe('dev runner Node version guard', { skip: posixOnly }, () => {
       assert.equal(sb.nestStarts(), 0);
       assert.equal(fs.existsSync(path.join(sb.dir, 'events.log')), false);
     } finally {
-      sb.dispose();
+      await sb.dispose();
     }
   });
 
-  it('fails loudly when engines.node is missing or not a ">=X.Y.Z" minimum', () => {
+  it('fails loudly when engines.node is missing or not a ">=X.Y.Z" minimum', async () => {
     for (const declared of [null, {}, { node: '^20.11.0' }, { node: '>=20' }]) {
       const sb = new Sandbox(declared);
       try {
@@ -307,7 +360,7 @@ describe('dev runner Node version guard', { skip: posixOnly }, () => {
         assert.equal(sb.nestStarts(), 0, 'nothing was started');
         assert.match(result.stderr, /Cannot determine the minimum Node\.js version/);
       } finally {
-        sb.dispose();
+        await sb.dispose();
       }
     }
   });
@@ -348,18 +401,14 @@ const strategies: Array<{ name: string; env: Record<string, string>; groupless: 
       ];
 
 async function withNodeSandbox(env: Record<string, string>, fn: (sandbox: Sandbox) => Promise<void>): Promise<void> {
-  const sandbox = new Sandbox(undefined, { node: true, env });
-  try {
-    await fn(sandbox);
-  } finally {
-    sandbox.dispose();
-  }
+  await runInSandbox(new Sandbox(undefined, { node: true, env }), fn);
 }
 
 /** Ends a runner that is still alive: SIGTERM on POSIX (the normal shutdown); Windows has no such signal. */
 async function stopRunner(sb: Sandbox, runner: ChildProcess): Promise<void> {
   if (process.platform === 'win32') {
-    runner.kill();
+    runner.kill(); // no graceful signal on Windows: the lifeline ends the rest of the tree
+    await sb.exitWithin(20_000);
     return;
   }
   process.kill(runner.pid!, 'SIGTERM');
