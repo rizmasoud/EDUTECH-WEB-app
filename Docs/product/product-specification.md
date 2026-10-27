@@ -234,6 +234,8 @@ Required conceptual information includes:
 - Active/inactive state
 - Creation and update timestamps
 
+> **Scope decision D1 (2026-10-28):** A student must also have a book/level placement as part of creation (`Docs/EDUTECH-BUSINESS-RULES.md` BR-STU-001). See `Docs/product/mvp-scope.md`. The exclusions below are unchanged.
+
 The MVP intentionally excludes unnecessary student information such as:
 
 - Phone number
