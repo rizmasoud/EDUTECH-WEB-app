@@ -35,7 +35,7 @@ function NavList({
   onNavigate,
 }: Pick<AppShellProps, 'items' | 'activeId' | 'onNavigate'>) {
   return (
-    <nav aria-label="ناوبری اصلی" className="flex flex-col gap-1 p-3">
+    <nav aria-label="Main navigation" className="flex flex-col gap-0.5 p-3">
       {items.map((item) => {
         const Icon = item.icon;
         const active = item.id === activeId;
@@ -46,11 +46,14 @@ function NavList({
             onClick={() => onNavigate(item.id)}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
+              'flex h-9 w-full items-center gap-3 rounded-lg px-3 text-start text-sm font-medium transition-colors',
               active ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-100',
             )}
           >
-            <Icon className="size-5 shrink-0" aria-hidden="true" />
+            <Icon
+              className={cn('size-4 shrink-0', active ? 'text-indigo-600' : 'text-slate-500')}
+              aria-hidden="true"
+            />
             <span>{item.label}</span>
           </button>
         );
@@ -63,14 +66,14 @@ function Brand() {
   return (
     <div className="flex h-14 items-center gap-2 px-5">
       <span className="text-lg font-bold text-slate-900">EduTech</span>
-      <span className="text-sm text-slate-500">مدیریت آموزشگاه</span>
+      <span className="text-sm text-slate-500">School Management</span>
     </div>
   );
 }
 
 /**
- * Application shell: one labeled sidebar (right edge in RTL) and one header.
- * RTL is native: the sidebar is the first flex child, spacing uses logical utilities (ms-/me-/start-/end-).
+ * Application shell: one labeled sidebar (left edge, LTR) and one header.
+ * Spacing uses logical utilities (ms-/me-/start-/end-) so direction stays a layout-level decision.
  */
 export function AppShell({
   items,
@@ -113,10 +116,10 @@ export function AppShell({
 
       {/* Sidebar (mobile drawer) */}
       {menuOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="منوی اصلی">
+        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Main menu">
           <button
             type="button"
-            aria-label="بستن منو"
+            aria-label="Close menu"
             className="absolute inset-0 bg-slate-900/40"
             onClick={() => setMenuOpen(false)}
           />
@@ -129,7 +132,7 @@ export function AppShell({
                 className="flex h-8 items-center gap-1 rounded-lg px-2 text-sm text-slate-600 hover:bg-slate-100"
               >
                 <X className="size-4" aria-hidden="true" />
-                <span>بستن</span>
+                <span>Close</span>
               </button>
             </div>
             <NavList items={items} activeId={activeId} onNavigate={navigate} />
@@ -147,13 +150,13 @@ export function AppShell({
             icon={<Menu className="size-4" aria-hidden="true" />}
             onClick={() => setMenuOpen(true)}
           >
-            منو
+            Menu
           </Button>
 
           {terms.length > 0 ? (
             <div className="flex items-center gap-2">
               <label htmlFor="app-term-select" className="text-sm text-slate-600">
-                ترم
+                Term
               </label>
               <select
                 id="app-term-select"
@@ -180,7 +183,7 @@ export function AppShell({
               disabled={loading}
               icon={<RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden="true" />}
             >
-              به‌روزرسانی
+              Refresh
             </Button>
             <div className="flex items-center gap-2 px-2 text-sm text-slate-700">
               <span dir="ltr" className="font-medium">
@@ -192,9 +195,9 @@ export function AppShell({
               size="sm"
               variant="ghost"
               onClick={onLogout}
-              icon={<LogOut className="size-4 rtl:-scale-x-100" aria-hidden="true" />}
+              icon={<LogOut className="size-4" aria-hidden="true" />}
             >
-              خروج
+              Sign out
             </Button>
           </div>
         </header>

@@ -19,10 +19,10 @@ function files(dir: string): string[] {
 }
 
 describe('RTL and Persian typography foundation', () => {
-  it('both layouts declare Persian and right-to-left on <html>', () => {
+  it('both layouts declare English and left-to-right on <html>', () => {
     // The root app/ is the Next app that is served; apps/web/app is the canonical copy.
     for (const layout of ['app/layout.tsx', 'apps/web/app/layout.tsx']) {
-      assert.match(read(layout), /<html lang="fa" dir="rtl">/, `${layout} must set lang="fa" dir="rtl"`);
+      assert.match(read(layout), /<html lang="en" dir="ltr">/, `${layout} must set lang="en" dir="ltr"`);
     }
   });
 
@@ -41,15 +41,15 @@ describe('RTL and Persian typography foundation', () => {
     assert.match(css, /font-family:\s*"Vazirmatn"/);
     assert.match(css, /url\("\/fonts\/Vazirmatn-Variable\.woff2"\)/);
     assert.ok(!/https?:\/\//.test(css), 'no remote URL may appear in the stylesheet');
-    assert.match(css, /--font-sans:\s*"Vazirmatn"/);
+    assert.ok(!/--font-sans:\s*"Vazirmatn"/.test(css), 'Vazirmatn must not be the default UI font');
     for (const layout of ['app/layout.tsx', 'apps/web/app/layout.tsx']) {
       assert.ok(!/fonts\.(googleapis|gstatic)\.com/.test(read(layout)), `${layout} must not load a remote font`);
     }
   });
 
-  it('gives Persian text enough line height and keeps identifiers left-to-right', () => {
+  it('uses a Latin line height and keeps identifiers left-to-right', () => {
     const css = read('apps/web/app/globals.css');
-    assert.match(css, /line-height:\s*1\.75/);
+    assert.match(css, /line-height:\s*1\.5/);
     assert.match(css, /\[dir="ltr"\]\s*\{\s*unicode-bidi:\s*isolate/);
   });
 
@@ -97,20 +97,20 @@ describe('RTL and Persian typography foundation', () => {
     const page = read('apps/web/app/page.tsx');
     const labels = [...page.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
     assert.deepEqual(labels, [
-      'نمای کلی',
-      'زمان‌بندی',
-      'کلاس‌ها',
-      'دانش‌آموزان',
-      'معلم‌ها',
-      'کتاب‌ها',
-      'ترم‌ها',
-      'برنامه هفتگی',
+      'Overview',
+      'Scheduling',
+      'Classes',
+      'Students',
+      'Teachers',
+      'Books',
+      'Terms',
+      'Weekly Schedule',
     ]);
   });
 
   it('uses the agreed terminology', () => {
     const page = read('apps/web/app/page.tsx');
-    for (const term of ['دانش‌آموزان', 'معلم‌ها', 'کلاس‌ها', 'ترم‌ها', 'کتاب‌ها', 'زمان‌بندی']) {
+    for (const term of ['Students', 'Teachers', 'Classes', 'Terms', 'Books', 'Scheduling']) {
       assert.ok(page.includes(term), `missing ${term}`);
     }
     const overview = read('apps/web/components/overview/OverviewPage.tsx');

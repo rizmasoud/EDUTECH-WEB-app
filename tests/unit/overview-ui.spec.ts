@@ -171,9 +171,9 @@ describe('Login view', () => {
 
 describe('App shell', () => {
   const items = [
-    { id: 'OVERVIEW', label: 'نمای کلی', icon: LayoutDashboard },
-    { id: 'SCHEDULING', label: 'زمان‌بندی', icon: Calendar },
-    { id: 'CLASSES', label: 'کلاس‌ها', icon: Layers },
+    { id: 'OVERVIEW', label: 'Overview', icon: LayoutDashboard },
+    { id: 'SCHEDULING', label: 'Scheduling', icon: Calendar },
+    { id: 'CLASSES', label: 'Classes', icon: Layers },
   ];
   const render = (roles: string[] = ['SUPERVISOR']) =>
     renderToString(
@@ -200,22 +200,22 @@ describe('App shell', () => {
     assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
   });
 
-  it('has one header with the term selector, the personnel code kept left-to-right, the Persian role, and sign out', () => {
+  it('has one header with the term selector, the personnel code kept left-to-right, the role label, and sign out', () => {
     const html = render();
     assert.equal((html.match(/<header/g) ?? []).length, 1);
     assert.ok(html.includes('id="app-term-select"'));
     assert.ok(html.includes('dir="ltr"'));
     assert.ok(html.includes('SUP-01'));
-    assert.ok(html.includes('سرپرست'));
-    assert.ok(html.includes('خروج'));
+    assert.ok(html.includes('Supervisor'));
+    assert.ok(html.includes('Sign out'));
     assert.ok(html.includes('محتوای صفحه'));
   });
 
-  it('labels a teacher as a teacher (معلم), not a supervisor', () => {
+  it('labels a teacher as a teacher, not a supervisor', () => {
     // React SSR separates adjacent text nodes with <!-- -->, so assert on the label, not on "(label)".
     const html = render(['TEACHER']);
-    assert.ok(html.includes('معلم'));
-    assert.ok(!html.includes('سرپرست'));
+    assert.ok(html.includes('Teacher'));
+    assert.ok(!html.includes('Supervisor'));
   });
 });
 

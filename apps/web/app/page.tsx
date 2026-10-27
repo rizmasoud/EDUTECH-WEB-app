@@ -54,17 +54,17 @@ type MainSection =
 
 /** Supervisor navigation. Labels are fixed product terminology. */
 const SUPERVISOR_NAV: NavItem[] = [
-  { id: 'OVERVIEW', label: 'نمای کلی', icon: LayoutDashboard },
-  { id: 'SCHEDULING', label: 'زمان‌بندی', icon: Calendar },
-  { id: 'CLASSES', label: 'کلاس‌ها', icon: Layers },
-  { id: 'STUDENTS', label: 'دانش‌آموزان', icon: GraduationCap },
-  { id: 'TEACHERS', label: 'معلم‌ها', icon: Users },
-  { id: 'BOOKS', label: 'کتاب‌ها', icon: BookOpen },
-  { id: 'TERMS', label: 'ترم‌ها', icon: CalendarRange },
+  { id: 'OVERVIEW', label: 'Overview', icon: LayoutDashboard },
+  { id: 'SCHEDULING', label: 'Scheduling', icon: Calendar },
+  { id: 'CLASSES', label: 'Classes', icon: Layers },
+  { id: 'STUDENTS', label: 'Students', icon: GraduationCap },
+  { id: 'TEACHERS', label: 'Teachers', icon: Users },
+  { id: 'BOOKS', label: 'Books', icon: BookOpen },
+  { id: 'TERMS', label: 'Terms', icon: CalendarRange },
 ];
 
 /** The teacher experience stays the existing read-only schedule portal: one destination. */
-const TEACHER_NAV: NavItem[] = [{ id: 'SCHEDULING', label: 'برنامه هفتگی', icon: Calendar }];
+const TEACHER_NAV: NavItem[] = [{ id: 'SCHEDULING', label: 'Weekly Schedule', icon: Calendar }];
 
 /**
  * Screens that have not been redesigned yet keep their original (English, left-to-right) layout.
