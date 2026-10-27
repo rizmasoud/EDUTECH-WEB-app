@@ -1,5 +1,5 @@
 /**
- * RTL and typography foundation: static checks on the files Next.js actually serves.
+ * Layout and typography foundation (English, left-to-right): static checks on the files Next.js actually serves.
  * No browser: it verifies structure, self-hosted font, and that the NEW UI (shell, Overview, login, primitives)
  * uses logical (direction-aware) utilities only. Legacy screens are not covered until they are redesigned.
  */
@@ -114,8 +114,8 @@ describe('RTL and Persian typography foundation', () => {
       assert.ok(page.includes(term), `missing ${term}`);
     }
     const overview = read('apps/web/components/overview/OverviewPage.tsx');
-    assert.ok(overview.includes('پیشنهاد زمان‌بندی'));
-    assert.ok(overview.includes('دانش‌آموز'));
+    assert.ok(overview.includes('Scheduling proposals'));
+    assert.ok(overview.includes('Add student'));
   });
 });
 

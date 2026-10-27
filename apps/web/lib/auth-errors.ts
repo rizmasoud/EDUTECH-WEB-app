@@ -1,19 +1,19 @@
 /**
- * Maps login failures to Persian messages by the API's stable error `code`
+ * Maps login failures to user-facing messages by the API's stable error `code`
  * (see apps/api auth.service.ts and the Next proxy route), never by English message text.
  */
 export function describeLoginError(err: unknown): string {
   const code = (err as { code?: unknown } | null)?.code;
   switch (code) {
     case 'INVALID_CREDENTIALS':
-      return 'کد پرسنلی یا رمز عبور اشتباه است.';
+      return 'Incorrect personnel code or password.';
     case 'ACCOUNT_INACTIVE':
-      return 'این حساب کاربری غیرفعال است. با سرپرست تماس بگیرید.';
+      return 'This account is inactive. Contact your supervisor.';
     case 'RATE_LIMIT_EXCEEDED':
-      return 'تعداد تلاش‌های ناموفق زیاد بوده است. کمی بعد دوباره تلاش کنید.';
+      return 'Too many failed attempts. Please try again later.';
     case 'BACKEND_UNAVAILABLE':
-      return 'اتصال به سرور برقرار نشد. کمی بعد دوباره تلاش کنید.';
+      return 'Could not reach the server. Please try again later.';
     default:
-      return 'ورود انجام نشد. لطفاً دوباره تلاش کنید.';
+      return 'Sign-in failed. Please try again.';
   }
 }

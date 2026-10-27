@@ -36,7 +36,7 @@ export function Toast({ type, message, onDismiss }: ToastProps) {
       <p className="min-w-0 flex-1 break-words">{message}</p>
       {onDismiss ? (
         <button type="button" onClick={onDismiss} className="shrink-0 text-xs font-medium underline-offset-2 hover:underline">
-          بستن
+          Close
         </button>
       ) : null}
     </div>

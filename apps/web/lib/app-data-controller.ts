@@ -58,9 +58,9 @@ const INITIAL: AppDataSnapshot = {
 
 function messageOf(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as Error).message === 'string') {
-    return (err as Error).message || 'خطای نامشخص';
+    return (err as Error).message || 'Unknown error';
   }
-  return 'خطای نامشخص';
+  return 'Unknown error';
 }
 
 /** True when the loaded classes belong to the selected term (so they may be shown for it). */

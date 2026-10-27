@@ -36,7 +36,7 @@ export function LoginView({
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <p className="text-2xl font-bold text-slate-900">EduTech</p>
-          <h1 className="mt-1 text-sm text-slate-600">ورود به سامانه مدیریت آموزشگاه</h1>
+          <h1 className="mt-1 text-sm text-slate-600">Sign in to the institute management system</h1>
         </div>
 
         <form
@@ -58,7 +58,7 @@ export function LoginView({
 
           <div className="space-y-1">
             <label htmlFor="login-personnel-code" className="block text-sm font-medium text-slate-800">
-              کد پرسنلی
+              Personnel code
             </label>
             <input
               id="login-personnel-code"
@@ -77,7 +77,7 @@ export function LoginView({
 
           <div className="space-y-1">
             <label htmlFor="login-password" className="block text-sm font-medium text-slate-800">
-              رمز عبور
+              Password
             </label>
             <input
               id="login-password"
@@ -93,7 +93,7 @@ export function LoginView({
           </div>
 
           <Button type="submit" variant="primary" className="w-full" loading={submitting}>
-            ورود
+            Sign in
           </Button>
         </form>
       </div>
