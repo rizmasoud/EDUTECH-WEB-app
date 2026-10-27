@@ -137,7 +137,7 @@ export default function SchedulingAppPage() {
     setLoading(true);
     try {
       await apiClient.logout();
-      showNotification('info', 'از حساب کاربری خارج شدید.');
+      showNotification('info', 'You have been signed out.');
     } catch {
       // The session may already be gone; either way the user is signed out locally.
     } finally {
@@ -156,7 +156,7 @@ export default function SchedulingAppPage() {
   const handleLoginSubmit = async () => {
     const code = loginPersonnelCode.trim();
     if (!code || !loginPassword) {
-      setAuthError('کد پرسنلی و رمز عبور را وارد کنید.');
+      setAuthError('Enter your personnel code and password.');
       return;
     }
     setActionLoading(true);
@@ -530,7 +530,7 @@ export default function SchedulingAppPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen">
-        <LoadingState label="در حال بررسی ورود…" />
+        <LoadingState label="Checking your session…" />
       </div>
     );
   }

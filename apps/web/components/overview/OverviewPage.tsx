@@ -1,7 +1,7 @@
 import React from 'react';
 import { CalendarDays, CheckCircle2, Plus, UserPlus } from 'lucide-react';
 import type { AcademicTerm, ClassItem, Schedule, SchedulingProposal } from '../../lib/api-client';
-import { formatJalaliRange, formatNumber } from '../../lib/format';
+import { formatDateRangeEn, formatNumberEn } from '../../lib/format';
 import { TERM_STATUS_LABEL } from '../../lib/labels';
 import {
   CLASS_FETCH_LIMIT,
@@ -52,7 +52,7 @@ function AttentionRow({
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <span className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-amber-50 px-2 text-sm font-bold text-amber-800">
-        {formatNumber(count)}
+        {formatNumberEn(count)}
       </span>
       <span className="min-w-0 flex-1 text-sm text-slate-900">{label}</span>
       <Button size="sm" onClick={onAction}>
@@ -86,7 +86,7 @@ export function OverviewPage({
   if (loading) {
     return (
       <>
-        <PageHeader title="نمای کلی" />
+        <PageHeader title="Overview" />
         <LoadingState />
       </>
     );
@@ -97,14 +97,14 @@ export function OverviewPage({
   if (loadError && noUsableData) {
     return (
       <>
-        <PageHeader title="نمای کلی" />
+        <PageHeader title="Overview" />
         <div role="alert">
           <EmptyState
-            title="بارگذاری اطلاعات انجام نشد"
-            description={term ? `اطلاعات ترم «${term.name}» بارگذاری نشد. ${loadError}` : loadError}
+            title="Could not load data"
+            description={term ? `Could not load data for the term “${term.name}”. ${loadError}` : loadError}
             action={
               <Button variant="primary" onClick={onRetry}>
-                تلاش دوباره
+                Try again
               </Button>
             }
           />
@@ -117,7 +117,7 @@ export function OverviewPage({
   if (term && !dataMatchesTerm) {
     return (
       <>
-        <PageHeader title="نمای کلی" />
+        <PageHeader title="Overview" />
         <LoadingState />
       </>
     );
@@ -126,13 +126,13 @@ export function OverviewPage({
   if (!term) {
     return (
       <>
-        <PageHeader title="نمای کلی" />
+        <PageHeader title="Overview" />
         <EmptyState
-          title="هنوز ترمی ثبت نشده است"
-          description="برای شروع، یک ترم تحصیلی ایجاد کنید."
+          title="No term yet"
+          description="Create an academic term to get started."
           action={
             <Button variant="primary" onClick={onGoToTerms}>
-              رفتن به ترم‌ها
+              Go to terms
             </Button>
           }
         />
@@ -143,7 +143,7 @@ export function OverviewPage({
   const summary = summarizeOverview({ classes, schedules, proposals });
   const header = (
     <PageHeader
-      title="نمای کلی"
+      title="Overview"
       description={
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span dir="auto" className="font-medium text-slate-800">
@@ -152,7 +152,7 @@ export function OverviewPage({
           <span className="rounded-lg bg-slate-100 px-2 text-xs text-slate-700">
             {TERM_STATUS_LABEL[term.status]}
           </span>
-          <span>{formatJalaliRange(term.startDate, term.endDate)}</span>
+          <span>{formatDateRangeEn(term.startDate, term.endDate)}</span>
         </span>
       }
     />
@@ -163,11 +163,11 @@ export function OverviewPage({
       <>
         {header}
         <EmptyState
-          title="در این ترم هنوز کلاسی ثبت نشده است"
-          description="با افزودن کلاس، وضعیت معلم‌ها و زمان‌بندی در این صفحه نمایش داده می‌شود."
+          title="No classes in this term yet"
+          description="Add a class to see teacher and scheduling status on this page."
           action={
             <Button variant="primary" icon={<Plus className="size-4" aria-hidden="true" />} onClick={onAddClass}>
-              افزودن کلاس
+              Add class
             </Button>
           }
         />
@@ -184,7 +184,7 @@ export function OverviewPage({
       {/* Refresh failed but the numbers below are from the last successful load of this same term. */}
       {loadError ? (
         <ErrorBanner
-          title="به‌روزرسانی انجام نشد؛ اعداد زیر مربوط به آخرین بارگذاری موفق این ترم است."
+          title="Refresh failed. The figures below are from the last successful load of this term."
           message={loadError}
           onRetry={onRetry}
         />
@@ -193,92 +193,92 @@ export function OverviewPage({
       <div className="space-y-8">
         <section aria-labelledby="overview-attention">
           <h2 id="overview-attention" className="mb-3 text-base font-semibold text-slate-900">
-            نیازمند توجه
+            Needs attention
           </h2>
           <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
             {summary.classesWithoutTeacher.length > 0 ? (
               <AttentionRow
                 count={summary.classesWithoutTeacher.length}
-                label="کلاس بدون معلم"
-                actionLabel="مشاهده کلاس‌ها"
+                label="Classes without a teacher"
+                actionLabel="View classes"
                 onAction={onGoToClasses}
               />
             ) : null}
             {summary.unscheduledClasses.length > 0 ? (
               <AttentionRow
                 count={summary.unscheduledClasses.length}
-                label="کلاس بدون زمان‌بندی"
-                actionLabel="زمان‌بندی کلاس‌ها"
+                label="Classes not scheduled"
+                actionLabel="Schedule classes"
                 onAction={onGoToUnscheduled}
               />
             ) : null}
             {firstPending ? (
               <AttentionRow
                 count={summary.pendingProposals.length}
-                label="پیشنهاد زمان‌بندی در انتظار بررسی"
-                actionLabel="بررسی پیشنهاد"
+                label="Scheduling proposals awaiting review"
+                actionLabel="Review proposal"
                 onAction={() => onReviewProposal(firstPending)}
               />
             ) : null}
             {summary.attentionItemCount === 0 ? (
               <li className="flex items-center gap-2 px-4 py-4 text-sm text-slate-700">
                 <CheckCircle2 className="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>موردی برای رسیدگی پیدا نشد.</span>
+                <span>Nothing needs attention.</span>
               </li>
             ) : null}
           </ul>
           {summary.proposalsMayBeTruncated ? (
             <p className="mt-2 text-xs text-slate-500">
-              فقط {formatNumber(PROPOSAL_FETCH_LIMIT)} پیشنهاد اول بررسی شده است؛ تعداد پیشنهادهای در انتظار ممکن است بیشتر باشد.
+              Only the first {formatNumberEn(PROPOSAL_FETCH_LIMIT)} proposals were checked; more proposals may be awaiting review.
             </p>
           ) : null}
         </section>
 
         <section aria-labelledby="overview-status">
           <h2 id="overview-status" className="mb-3 text-base font-semibold text-slate-900">
-            وضعیت ترم
+            Term status
           </h2>
           <dl className="grid grid-cols-1 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             <div className="px-4 py-3">
-              <dt className="text-sm text-slate-600">کلاس‌های جاری</dt>
-              <dd className="mt-1 text-2xl font-bold text-slate-900">{formatNumber(summary.openClassCount)}</dd>
+              <dt className="text-sm text-slate-600">Current classes</dt>
+              <dd className="mt-1 text-2xl font-bold text-slate-900">{formatNumberEn(summary.openClassCount)}</dd>
             </div>
             <div className="px-4 py-3">
-              <dt className="text-sm text-slate-600">کلاس‌های زمان‌بندی‌شده</dt>
+              <dt className="text-sm text-slate-600">Scheduled classes</dt>
               <dd className="mt-1 text-2xl font-bold text-slate-900">
-                {formatNumber(summary.scheduledClassCount)}
+                {formatNumberEn(summary.scheduledClassCount)}
               </dd>
             </div>
             {summary.atCapacityCount !== null ? (
               <div className="px-4 py-3">
-                <dt className="text-sm text-slate-600">کلاس‌های با ظرفیت تکمیل</dt>
+                <dt className="text-sm text-slate-600">Classes at capacity</dt>
                 <dd className="mt-1 text-2xl font-bold text-slate-900">
-                  {formatNumber(summary.atCapacityCount)}
+                  {formatNumberEn(summary.atCapacityCount)}
                 </dd>
               </div>
             ) : null}
           </dl>
           <p className="mt-2 text-xs text-slate-500">
-            کلاس‌های جاری شامل کلاس‌های فعال و پیش‌نویس است؛ کلاس‌های لغوشده و پایان‌یافته شمرده نمی‌شوند.
+            Current classes include active and draft classes; cancelled and finished classes are not counted.
             {summary.classesMayBeTruncated
-              ? ` فقط ${formatNumber(CLASS_FETCH_LIMIT)} کلاس اول این ترم بررسی شده است؛ اعداد ممکن است ناقص باشند.`
+              ? ` Only the first ${formatNumberEn(CLASS_FETCH_LIMIT)} classes of this term were checked, so the figures may be incomplete.`
               : ''}
           </p>
         </section>
 
         <section aria-labelledby="overview-actions">
           <h2 id="overview-actions" className="mb-3 text-base font-semibold text-slate-900">
-            اقدام‌های بعدی
+            Next actions
           </h2>
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" icon={<Plus className="size-4" aria-hidden="true" />} onClick={onAddClass}>
-              افزودن کلاس
+              Add class
             </Button>
             <Button icon={<UserPlus className="size-4" aria-hidden="true" />} onClick={onAddStudent}>
-              افزودن دانش‌آموز
+              Add student
             </Button>
             <Button icon={<CalendarDays className="size-4" aria-hidden="true" />} onClick={onOpenScheduling}>
-              باز کردن زمان‌بندی
+              Open scheduling
             </Button>
           </div>
         </section>

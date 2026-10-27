@@ -45,9 +45,9 @@ function render(over: Partial<OverviewPageProps> = {}): string {
   return renderToString(React.createElement(OverviewPage, props));
 }
 
-const EMPTY_TERM = 'در این ترم هنوز کلاسی ثبت نشده است';
-const ERROR_TITLE = 'بارگذاری اطلاعات انجام نشد';
-const RETRY = 'تلاش دوباره';
+const EMPTY_TERM = 'No classes in this term yet';
+const ERROR_TITLE = 'Could not load data';
+const RETRY = 'Try again';
 
 describe('Overview states', () => {
   it('a failed load with a known term and no classes is an error with retry, not an empty term', () => {
@@ -62,37 +62,37 @@ describe('Overview states', () => {
   it('a failed load with classes that belong to another term is an error, never their numbers', () => {
     const html = render({ dataMatchesTerm: false, loadError: 'boom' });
     assert.ok(html.includes(ERROR_TITLE));
-    assert.ok(!html.includes('نیازمند توجه'), 'no attention list built from another term');
+    assert.ok(!html.includes('Needs attention'), 'no attention list built from another term');
   });
 
   it('a failed refresh keeps same-term data but shows a persistent error with retry', () => {
     const html = render({ loadError: 'timeout' });
     assert.ok(html.includes('role="alert"'));
     assert.ok(html.includes(RETRY));
-    assert.ok(html.includes('نیازمند توجه'));
-    assert.ok(html.includes('آخرین بارگذاری موفق'));
+    assert.ok(html.includes('Needs attention'));
+    assert.ok(html.includes('last successful load'));
   });
 
   it('classes of another term are not counted while a term switch is loading', () => {
     const html = render({ dataMatchesTerm: false, loading: false });
-    assert.ok(!html.includes('نیازمند توجه'));
+    assert.ok(!html.includes('Needs attention'));
     assert.ok(!html.includes(EMPTY_TERM));
-    assert.ok(html.includes('در حال بارگذاری'));
+    assert.ok(html.includes('Loading'));
   });
 
   it('loading, empty term and no term stay distinct', () => {
     const loading = render({ loading: true });
     const empty = render({ classes: [] });
     const noTerm = render({ term: null, classes: [] });
-    assert.ok(loading.includes('در حال بارگذاری') && !loading.includes(EMPTY_TERM) && !loading.includes(ERROR_TITLE));
+    assert.ok(loading.includes('Loading') && !loading.includes(EMPTY_TERM) && !loading.includes(ERROR_TITLE));
     assert.ok(empty.includes(EMPTY_TERM) && !empty.includes(ERROR_TITLE));
-    assert.ok(noTerm.includes('هنوز ترمی ثبت نشده است') && !noTerm.includes(ERROR_TITLE));
+    assert.ok(noTerm.includes('No term yet') && !noTerm.includes(ERROR_TITLE));
   });
 
   it('without a term, a failed load is an error rather than "no term"', () => {
     const html = render({ term: null, classes: [], loadError: 'down' });
     assert.ok(html.includes(ERROR_TITLE));
-    assert.ok(!html.includes('هنوز ترمی ثبت نشده است'));
+    assert.ok(!html.includes('No term yet'));
   });
 
   it('a healthy load shows no error', () => {

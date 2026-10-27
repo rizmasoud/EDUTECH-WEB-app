@@ -3,9 +3,9 @@
 import type { AcademicTerm, SchedulingProposal } from './api-client';
 
 export const TERM_STATUS_LABEL: Record<AcademicTerm['status'], string> = {
-  PLANNED: 'برنامه‌ریزی‌شده',
-  ACTIVE: 'فعال',
-  CLOSED: 'بسته‌شده',
+  PLANNED: 'Planned',
+  ACTIVE: 'Active',
+  CLOSED: 'Closed',
 };
 
 export const PROPOSAL_STATUS_LABEL: Record<SchedulingProposal['status'], string> = {

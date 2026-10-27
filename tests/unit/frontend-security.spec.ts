@@ -150,10 +150,10 @@ describe('Teacher role stays on the read-only schedule portal', () => {
 
 describe('Login error messages', () => {
   it('maps the API error codes to Persian messages', () => {
-    assert.equal(describeLoginError({ code: 'INVALID_CREDENTIALS' }), 'کد پرسنلی یا رمز عبور اشتباه است.');
-    assert.match(describeLoginError({ code: 'ACCOUNT_INACTIVE' }), /غیرفعال/);
-    assert.match(describeLoginError({ code: 'RATE_LIMIT_EXCEEDED' }), /تلاش/);
-    assert.match(describeLoginError({ code: 'BACKEND_UNAVAILABLE' }), /سرور/);
+    assert.equal(describeLoginError({ code: 'INVALID_CREDENTIALS' }), 'Incorrect personnel code or password.');
+    assert.match(describeLoginError({ code: 'ACCOUNT_INACTIVE' }), /inactive/);
+    assert.match(describeLoginError({ code: 'RATE_LIMIT_EXCEEDED' }), /Too many failed attempts/);
+    assert.match(describeLoginError({ code: 'BACKEND_UNAVAILABLE' }), /server/);
   });
 
   it('uses a generic message for unknown failures and never echoes server text', () => {
