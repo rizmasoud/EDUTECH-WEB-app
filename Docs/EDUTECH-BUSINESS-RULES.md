@@ -27,6 +27,8 @@ When documentation, existing code, and product-owner instructions disagree, repo
 
 **Status:** Confirmed requirement; implementation needs verification.
 
+> **Decision D1 (2026-10-28):** The product owner confirmed this requirement. It takes precedence over the student definition in `Docs/product/product-specification.md` §9. See `Docs/product/mvp-scope.md`.
+
 A supervisor must be able to assign a student's appropriate book or level when creating the student.
 
 The application must validate the assignment and prevent invalid relationships between students, books, and levels.
@@ -272,6 +274,8 @@ For each item, record:
 - Date of approval
 
 Do not create a new rule merely to fill a documentation gap.
+
+Approved scope decisions D1–D4 (2026-10-28) are recorded in `Docs/product/mvp-scope.md`, which is the authoritative scope document. Rules affected: BR-STU-001 (D1), BR-TEACH-001 and BR-SEC-001 (D2). The six-month student inactivity rule is not approved (D4).
 
 ## 15. Maintenance
 

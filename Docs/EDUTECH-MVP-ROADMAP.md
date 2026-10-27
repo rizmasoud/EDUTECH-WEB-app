@@ -151,6 +151,8 @@ The proposed core workflow is:
 8. Data persists correctly in PostgreSQL.
 9. Core workflows pass verification and the application can be deployed.
 
+> **Update (2026-10-28):** The MVP boundary was approved by the product owner and is recorded in `Docs/product/mvp-scope.md`, which is authoritative for scope.
+
 The final MVP boundary must be agreed upon after the repository audit. Features may be deferred only through an explicit decision, not silently omitted.
 
 ## 5. Development Workflow
