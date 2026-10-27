@@ -18,7 +18,7 @@ export const PROPOSAL_STATUS_LABEL: Record<SchedulingProposal['status'], string>
 
 /** Role names as returned by the API (`UserAccount.roles`). */
 export function roleLabel(roles: readonly string[] | undefined | null): string {
-  if (roles?.includes('SUPERVISOR')) return 'سرپرست';
-  if (roles?.includes('TEACHER')) return 'معلم';
-  return 'کاربر';
+  if (roles?.includes('SUPERVISOR')) return 'Supervisor';
+  if (roles?.includes('TEACHER')) return 'Teacher';
+  return 'User';
 }

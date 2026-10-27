@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * EduTech Web - design foundation (RTL-first, Persian).
+ * EduTech Web - design foundation (English, left-to-right).
  * Single source of truth: the root `app/globals.css` imports this file.
  *
  * Font: Vazirmatn (SIL Open Font License 1.1), self-hosted from /public/fonts.
@@ -16,7 +16,7 @@
 }
 
 @theme {
-  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, "Segoe UI", Tahoma, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 @layer base {
@@ -25,8 +25,7 @@
   }
 
   body {
-    /* Persian text needs more line height than Latin text. */
-    line-height: 1.75;
+    line-height: 1.5;
     font-feature-settings: "kern" 1;
   }
 
