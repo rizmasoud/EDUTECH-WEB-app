@@ -17,6 +17,7 @@ import {
   teacherAttendanceRecords,
 } from '../../../infrastructure/database/schema/attendance.schema';
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
+import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
 import {
@@ -465,7 +466,7 @@ export class AttendanceService {
           and(
             eq(substitutionRequests.classSessionId, sessionId),
             eq(substitutionRequests.approvedTeacherId, data.teacherId),
-            eq(substitutionRequests.status, 'APPROVED'),
+            inArray(substitutionRequests.status, [...SUBSTITUTE_EFFECTIVE_STATUSES]),
           ),
         )
         .limit(1);
