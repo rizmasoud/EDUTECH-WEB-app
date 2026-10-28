@@ -87,6 +87,10 @@ export interface TeacherSkillItem {
   teacherId: string;
   bookId: string;
   createdAt?: string;
+  /** Flat book fields, as returned by GET/POST /teachers/:id/skills (the API joins `books`). */
+  bookName?: string | null;
+  bookLevel?: string | null;
+  /** Nested form; the API does not send it today. Kept optional so a nested payload still renders. */
   book?: {
     id: string;
     name: string;
