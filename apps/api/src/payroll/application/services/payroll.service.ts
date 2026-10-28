@@ -18,6 +18,7 @@ import { academicTerms, books } from '../../../infrastructure/database/schema/ac
 import { classes, classSessions } from '../../../infrastructure/database/schema/classes.schema';
 import { teacherAttendanceRecords } from '../../../infrastructure/database/schema/attendance.schema';
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
+import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { lessonPlans } from '../../../infrastructure/database/schema/education.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
 import { NotificationService } from '../../../notifications/application/services/notification.service';
@@ -312,7 +313,7 @@ export class PayrollService {
         .where(
           and(
             inArray(substitutionRequests.classSessionId, primarySessionIds),
-            eq(substitutionRequests.status, 'APPROVED'),
+            inArray(substitutionRequests.status, [...SUBSTITUTE_EFFECTIVE_STATUSES]),
           ),
         );
     }
@@ -335,7 +336,7 @@ export class PayrollService {
       .where(
         and(
           eq(substitutionRequests.approvedTeacherId, payroll.teacherId),
-          eq(substitutionRequests.status, 'APPROVED'),
+          inArray(substitutionRequests.status, [...SUBSTITUTE_EFFECTIVE_STATUSES]),
           eq(classes.academicTermId, payroll.academicTermId),
         ),
       );
