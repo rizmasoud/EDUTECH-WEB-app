@@ -56,7 +56,12 @@ export function ClassesManager({
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  // Class-list loading failure. Only this one replaces the table.
   const [error, setError] = useState<string | null>(null);
+  // Save/update failure, shown inside the open dialog so it is never hidden behind it.
+  const [formError, setFormError] = useState<string | null>(null);
+  // Activate/complete/cancel failure: a banner above the table. The table stays visible.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Filters
@@ -92,6 +97,8 @@ export function ClassesManager({
     const requestedTermId = selectedTermId;
     setLoading(true);
     setError(null);
+    // Every successful save/action and every refresh reloads the list, so a stale action error is cleared here.
+    setActionError(null);
     try {
       const [classesList, booksList, teachersRes] = await Promise.all([
         // Without a selected term there is nothing to list: never fall back to "all terms".
@@ -153,6 +160,7 @@ export function ClassesManager({
 
   const openCreateModal = () => {
     setEditingClass(null);
+    setFormError(null);
     setFormTermId(selectedTermId || activeTerm?.id || (terms[0]?.id || ''));
     setFormBookId(books[0]?.id || '');
     setFormTeacherId('');
@@ -176,6 +184,7 @@ export function ClassesManager({
 
   const openEditModal = (classItem: ClassItem) => {
     setEditingClass(classItem);
+    setFormError(null);
     setFormTermId(classItem.academicTermId);
     setFormBookId(classItem.bookId);
     setFormTeacherId(classItem.teacherId || '');
@@ -190,11 +199,11 @@ export function ClassesManager({
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTermId || !formBookId) {
-      setError('Academic term and book are required.');
+      setFormError('Academic term and book are required.');
       return;
     }
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       if (editingClass) {
         const updated = await apiClient.updateClass(editingClass.id, {
@@ -222,7 +231,8 @@ export function ClassesManager({
       setIsCreateModalOpen(false);
       fetchClassesAndMetadata();
     } catch (err: any) {
-      setError(err.message || 'Failed to save class');
+      // Keep the dialog open and show the reason inside it; the class list is unaffected.
+      setFormError(err.message || 'Failed to save class');
     } finally {
       setActionLoading(false);
     }
@@ -230,13 +240,13 @@ export function ClassesManager({
 
   const handleActivate = async (classItem: ClassItem) => {
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.activateClass(classItem.id);
       setSuccessMsg(`Class "${getClassDisplayName(classItem)}" is now ACTIVE.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
-      setError(err.message || 'Failed to activate class');
+      setActionError(err.message || 'Failed to activate class');
     } finally {
       setActionLoading(false);
     }
@@ -245,13 +255,13 @@ export function ClassesManager({
   const handleComplete = async (classItem: ClassItem) => {
     if (!confirm(`Mark class "${getClassDisplayName(classItem)}" as COMPLETED?`)) return;
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.completeClass(classItem.id);
       setSuccessMsg(`Class "${getClassDisplayName(classItem)}" marked as COMPLETED.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
-      setError(err.message || 'Failed to complete class');
+      setActionError(err.message || 'Failed to complete class');
     } finally {
       setActionLoading(false);
     }
@@ -260,13 +270,13 @@ export function ClassesManager({
   const handleCancel = async (classItem: ClassItem) => {
     if (!confirm(`Are you sure you want to CANCEL class "${getClassDisplayName(classItem)}"?`)) return;
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.cancelClass(classItem.id);
       setSuccessMsg(`Class "${getClassDisplayName(classItem)}" has been CANCELLED.`);
       fetchClassesAndMetadata();
     } catch (err: any) {
-      setError(err.message || 'Failed to cancel class');
+      setActionError(err.message || 'Failed to cancel class');
     } finally {
       setActionLoading(false);
     }
@@ -350,6 +360,18 @@ export function ClassesManager({
             <span>{error}</span>
           </div>
           <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div role="alert" className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button onClick={() => setActionError(null)} aria-label="Dismiss error" className="text-rose-400 hover:text-rose-200">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -594,6 +616,15 @@ export function ClassesManager({
             </div>
 
             <form onSubmit={handleSaveClass} className="space-y-4 text-xs">
+              {formError && (
+                <div
+                  role="alert"
+                  className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 flex items-start gap-2"
+                >
+                  <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{formError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Academic Term *</label>
                 <select
