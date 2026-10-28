@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient, Teacher, TeacherSkillItem, BookItem } from '../../lib/api-client';
+import { TeacherSkillTitle } from './TeacherSkillTitle';
 import {
   GraduationCap,
   Search,
@@ -494,16 +495,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
                     >
                       <div className="flex items-center gap-2">
                         <Award className="h-4 w-4 text-indigo-400" />
-                        <div>
-                          <span className="font-semibold text-white">
-                            {skill.book?.name || 'Book Skill'}
-                          </span>
-                          {skill.book?.level && (
-                            <span className="ml-2 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 text-[10px] font-semibold border border-indigo-500/20">
-                              {skill.book.level}
-                            </span>
-                          )}
-                        </div>
+                        <TeacherSkillTitle skill={skill} books={books} />
                       </div>
                       {isSupervisor && (
                         <button
