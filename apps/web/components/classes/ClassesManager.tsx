@@ -31,6 +31,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { PASTEL_COLORS, getPastelColor, getClassDisplayName } from '../../lib/scheduling-utils';
+import { attachClassRelations } from '../../lib/class-relations';
 
 interface ClassesManagerProps {
   activeTerm: AcademicTerm | null;
@@ -105,7 +106,8 @@ export function ClassesManager({
         apiClient.getTeachers({ pageSize: 100 }),
       ]);
       if (generation !== fetchGeneration.current) return; // a newer request superseded this one
-      setClasses(classesList);
+      // The API returns ids only; fill in book/teacher names from the lists loaded alongside.
+      setClasses(attachClassRelations(classesList, booksList, teachersRes.items));
       setListTermId(requestedTermId);
       setBooks(booksList);
       setTeachers(teachersRes.items);
