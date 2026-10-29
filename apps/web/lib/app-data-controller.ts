@@ -13,15 +13,24 @@
  *  - Choosing a term clears the previous term's classes and proposals immediately, so they are never shown
  *    under the new term's name, and loads exactly that term's classes and proposals once.
  *  - A response that is no longer current (newer request, term change, reset) is discarded.
+ *  - GET /classes returns flat ids (`bookId`, `teacherId`), but the schedule screens render `cls.book` and
+ *    `cls.teacher`. Classes are therefore published with those names resolved from the books and teachers lists
+ *    (lib/class-relations.ts), so every screen reading this snapshot sees the same names. A class whose
+ *    `teacherId` is null stays without a teacher; an id that is not in the lists is never given a made-up name.
+ *    Teachers are listed only for a supervisor (GET /teachers also returns pay data and a teacher has no use
+ *    for other teachers' names); books are listed for everyone.
  *  - A failed load is kept in `error` until a later load succeeds. Data from a previous successful load of the
  *    SAME term is kept; data that belongs to another term is never kept.
  */
 
-import type { AcademicTerm, ClassItem, Schedule, SchedulingProposal } from './api-client';
+import type { AcademicTerm, BookItem, ClassItem, Schedule, SchedulingProposal, Teacher } from './api-client';
+import { attachClassRelations } from './class-relations';
 
 export interface AppDataApi {
   getAcademicTerms(): Promise<AcademicTerm[]>;
   getClasses(filter: { academicTermId?: string }): Promise<ClassItem[]>;
+  getBooks(query: { page?: number; pageSize?: number }): Promise<BookItem[]>;
+  getTeachers(query: { page?: number; pageSize?: number }): Promise<{ items: Teacher[]; total: number }>;
   getSchedules(): Promise<Schedule[]>;
   getProposals(filter: { academicTermId?: string }): Promise<SchedulingProposal[]>;
 }
@@ -55,6 +64,22 @@ const INITIAL: AppDataSnapshot = {
   loaded: false,
   error: null,
 };
+
+/** The API caps `pageSize` at 100. */
+const LOOKUP_PAGE_SIZE = 100;
+/** Safety bound so a misbehaving endpoint can never make a load run forever. */
+const LOOKUP_MAX_PAGES = 50;
+
+/** Read every page of a list endpoint (a full page means there may be more). */
+async function loadAllPages<T>(fetchPage: (page: number) => Promise<T[]>): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= LOOKUP_MAX_PAGES; page += 1) {
+    const items = await fetchPage(page);
+    all.push(...items);
+    if (items.length < LOOKUP_PAGE_SIZE) break;
+  }
+  return all;
+}
 
 function messageOf(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as Error).message === 'string') {
@@ -115,6 +140,20 @@ export class AppDataController {
     this.set({ activeProposal: proposal });
   }
 
+  /** The term's classes with `book` and `teacher` resolved (the API returns only their ids). */
+  private async classesFor(termId: string | undefined): Promise<ClassItem[]> {
+    const [classes, books, teachers] = await Promise.all([
+      this.api.getClasses({ academicTermId: termId }),
+      loadAllPages((page) => this.api.getBooks({ page, pageSize: LOOKUP_PAGE_SIZE })),
+      this.supervisor
+        ? loadAllPages((page) =>
+            this.api.getTeachers({ page, pageSize: LOOKUP_PAGE_SIZE }).then((res) => res.items),
+          )
+        : Promise.resolve([] as Teacher[]),
+    ]);
+    return attachClassRelations(classes, books, teachers);
+  }
+
   private proposalsFor(termId: string | undefined): Promise<SchedulingProposal[]> {
     // The proposals endpoint is supervisor-only; a teacher would get 403.
     return this.supervisor
@@ -136,7 +175,7 @@ export class AppDataController {
         terms.find((t) => t.id === currentId) ?? terms.find((t) => t.status === 'ACTIVE') ?? terms[0] ?? null;
 
       const [classes, schedules, proposals] = await Promise.all([
-        this.api.getClasses({ academicTermId: chosen?.id }),
+        this.classesFor(chosen?.id),
         this.api.getSchedules(),
         this.proposalsFor(chosen?.id),
       ]);
@@ -182,7 +221,7 @@ export class AppDataController {
     });
     try {
       const [classes, proposals] = await Promise.all([
-        this.api.getClasses({ academicTermId: term.id }),
+        this.classesFor(term.id),
         this.proposalsFor(term.id),
       ]);
       if (generation !== this.generation) return;
