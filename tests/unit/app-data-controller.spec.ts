@@ -12,7 +12,14 @@ import {
   classesMatchTerm,
   type AppDataApi,
 } from '../../apps/web/lib/app-data-controller';
-import type { AcademicTerm, ClassItem, Schedule, SchedulingProposal } from '../../apps/web/lib/api-client';
+import type {
+  AcademicTerm,
+  BookItem,
+  ClassItem,
+  Schedule,
+  SchedulingProposal,
+  Teacher,
+} from '../../apps/web/lib/api-client';
 
 const T1: AcademicTerm = { id: 't1', name: 'T1', startDate: '2026-09-23', endDate: '2026-12-20', status: 'ACTIVE' };
 const T2: AcademicTerm = { id: 't2', name: 'T2', startDate: '2026-12-22', endDate: '2027-03-15', status: 'PLANNED' };
@@ -47,10 +54,13 @@ interface Calls {
   classes: Array<string | undefined>;
   schedules: number;
   proposals: Array<string | undefined>;
+  /** Page numbers requested from the books / teachers list endpoints (name lookups, not counted in `total`). */
+  books: number[];
+  teachers: number[];
 }
 
 function fakeApi(over: Partial<AppDataApi> = {}) {
-  const calls: Calls = { terms: 0, classes: [], schedules: 0, proposals: [] };
+  const calls: Calls = { terms: 0, classes: [], schedules: 0, proposals: [], books: [], teachers: [] };
   const api: AppDataApi = {
     async getAcademicTerms() {
       calls.terms += 1;
@@ -59,6 +69,14 @@ function fakeApi(over: Partial<AppDataApi> = {}) {
     async getClasses(f) {
       calls.classes.push(f.academicTermId);
       return f.academicTermId === 't2' ? [cls('c-t2', 't2')] : [cls('c-t1', 't1')];
+    },
+    async getBooks(q) {
+      calls.books.push(q.page ?? 1);
+      return [];
+    },
+    async getTeachers(q) {
+      calls.teachers.push(q.page ?? 1);
+      return { items: [], total: 0 };
     },
     async getSchedules() {
       calls.schedules += 1;
@@ -324,5 +342,142 @@ describe('AppDataController: errors, roles and sign-out', () => {
     assert.equal(snap.loaded, false);
     assert.deepEqual(snap.classes, []);
     assert.equal(snap.activeTerm, null);
+  });
+});
+
+
+const book = (id: string, name: string, level = 'A1'): BookItem => ({
+  id,
+  name,
+  level,
+  sequenceOrder: 1,
+  sessionCount: 20,
+  isTerminal: false,
+  isActive: true,
+});
+const teacher = (id: string, firstName: string, lastName: string): Teacher => ({
+  id,
+  accountId: null,
+  firstName,
+  lastName,
+  isActive: true,
+});
+
+/** GET /classes as the API returns it: flat ids only, no nested `book` / `teacher`. */
+const flat = (id: string, over: Partial<ClassItem> = {}): ClassItem => ({
+  ...cls(id, 't1'),
+  bookId: 'b1',
+  teacherId: 'th1',
+  ...over,
+});
+
+describe('AppDataController: class book and teacher names (flat API ids -> nested objects)', () => {
+  const lookups = {
+    async getBooks() {
+      return [book('b1', 'English Level 1')];
+    },
+    async getTeachers() {
+      return { items: [teacher('th1', 'Hamid', 'Souriyan')], total: 1 };
+    },
+  };
+
+  it('supervisor: published classes carry the assigned teacher and book names', async () => {
+    const { api } = fakeApi({
+      ...lookups,
+      async getClasses() {
+        return [flat('c1')];
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: true });
+    await c.refresh();
+    const [out] = c.getSnapshot().classes;
+    assert.deepEqual(out.teacher, { id: 'th1', firstName: 'Hamid', lastName: 'Souriyan' });
+    assert.deepEqual(out.book, { id: 'b1', name: 'English Level 1', level: 'A1' });
+    assert.equal(out.teacherId, 'th1', 'the assignment itself is not changed');
+  });
+
+  it('a genuinely unassigned class stays without a teacher, and an unknown id gets no made-up name', async () => {
+    const { api } = fakeApi({
+      ...lookups,
+      async getClasses() {
+        return [flat('unassigned', { teacherId: null }), flat('ghost', { teacherId: 'nobody', bookId: 'nope' })];
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: true });
+    await c.refresh();
+    const [unassigned, ghost] = c.getSnapshot().classes;
+    assert.equal(unassigned.teacher, undefined);
+    assert.equal(unassigned.teacherId, null);
+    assert.equal(ghost.teacher, undefined);
+    assert.equal(ghost.book, undefined);
+  });
+
+  it('selecting a term resolves names for that term too', async () => {
+    const { api } = fakeApi({
+      ...lookups,
+      async getClasses() {
+        return [flat('c-t2')];
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: true });
+    await c.refresh();
+    await c.selectTerm(T2);
+    assert.equal(c.getSnapshot().classes[0].teacher?.lastName, 'Souriyan');
+  });
+
+  it('teacher role: books are resolved but the teachers list is never requested', async () => {
+    const { api, calls } = fakeApi({
+      ...lookups,
+      async getClasses() {
+        return [flat('c1')];
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: false });
+    await c.refresh();
+    assert.deepEqual(calls.teachers, []);
+    const [out] = c.getSnapshot().classes;
+    assert.equal(out.book?.name, 'English Level 1');
+    assert.equal(out.teacher, undefined);
+  });
+
+  it('reads every page of books and teachers (a full page of 100 means there may be more)', async () => {
+    const manyBooks = Array.from({ length: 150 }, (_, i) => book(`bk${i}`, `Book ${i}`));
+    const manyTeachers = Array.from({ length: 101 }, (_, i) => teacher(`tc${i}`, 'T', `${i}`));
+    const { api, calls } = fakeApi({
+      async getClasses() {
+        return [flat('late', { bookId: 'bk149', teacherId: 'tc100' })];
+      },
+      async getBooks(q) {
+        calls.books.push(q.page ?? 1);
+        return manyBooks.slice(((q.page ?? 1) - 1) * 100, (q.page ?? 1) * 100);
+      },
+      async getTeachers(q) {
+        calls.teachers.push(q.page ?? 1);
+        return { items: manyTeachers.slice(((q.page ?? 1) - 1) * 100, (q.page ?? 1) * 100), total: 101 };
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: true });
+    await c.refresh();
+    assert.deepEqual(calls.books, [1, 2], 'stops after the short second page');
+    assert.deepEqual(calls.teachers, [1, 2]);
+    const [out] = c.getSnapshot().classes;
+    assert.equal(out.book?.name, 'Book 149');
+    assert.equal(out.teacher?.lastName, '100');
+  });
+
+  it('a failing name lookup fails the load with an error instead of publishing classes without names', async () => {
+    const { api } = fakeApi({
+      async getClasses() {
+        return [flat('c1')];
+      },
+      async getTeachers() {
+        throw new Error('teachers unavailable');
+      },
+    });
+    const c = new AppDataController(api, { isSupervisor: true });
+    await c.refresh();
+    const snap = c.getSnapshot();
+    assert.equal(snap.error, 'teachers unavailable');
+    assert.deepEqual(snap.classes, []);
   });
 });
