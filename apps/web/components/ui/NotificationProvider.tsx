@@ -10,6 +10,9 @@ import { ToastCard } from './Toast';
  * Mounted ONCE, in the shared page (apps/web/app/page.tsx, which both layout files render), so every screen and
  * every dialog below it reaches the same store through `useNotifications()`. The viewport is `fixed` with
  * `z-[100]`, above the `z-50` full-screen overlays the dialogs use, so a notification is never hidden by a dialog.
+ * Width: `start-4 end-4` pins both edges 1rem inside the screen (so it can never overflow a narrow viewport) and
+ * `max-w-sm` caps it; on wide screens it stays at the start edge at the same width as before. No `w-full`: that
+ * plus an inset overflows by the inset on mobile.
  *
  * Use it for the RESULT of an action (saved, deleted, failed to delete). Errors that belong to a form stay inline
  * inside that form's dialog; do not also raise them here.
@@ -100,7 +103,7 @@ export function NotificationViewport({ notifications, onDismiss, onPause, onResu
   return (
     <div
       data-notification-viewport=""
-      className="pointer-events-none fixed bottom-4 start-4 z-[100] flex w-full max-w-sm flex-col gap-2"
+      className="pointer-events-none fixed bottom-4 start-4 end-4 z-[100] flex max-w-sm flex-col gap-2"
     >
       <div role="status" aria-live="polite" aria-atomic="false" aria-relevant="additions" className="flex flex-col gap-2">
         {notifications.filter((n) => n.type !== 'error').map(entry)}

@@ -338,6 +338,21 @@ describe('Notification overlay: mounting and stacking (from the source)', () => 
     assert.ok(viewportZ > otherMax, `viewport z-${viewportZ} must be above z-${otherMax}`);
   });
 
+  it('keeps the viewport inside both horizontal screen edges on narrow screens and keeps its desktop width', () => {
+    const html = renderToString(
+      React.createElement(NotificationViewport, { notifications: [], onDismiss() {}, onPause() {}, onResume() {} }),
+    );
+    const classes = (html.match(/data-notification-viewport="" class="([^"]*)"/)?.[1] ?? '').split(/\s+/);
+    // Both logical edges are pinned 1rem in, so the box can never extend past either screen edge...
+    assert.ok(classes.includes('start-4') && classes.includes('end-4'), `missing start-4/end-4: ${classes.join(' ')}`);
+    // ...the previous maximum width and bottom-start position are preserved...
+    assert.ok(classes.includes('max-w-sm') && classes.includes('bottom-4'));
+    // ...and no explicit width can reintroduce the overflow (w-full + an inset is 100% + 1rem wide).
+    assert.ok(!classes.some((c) => /^(?:w-|min-w-)/.test(c)), `explicit width found: ${classes.join(' ')}`);
+    // Stacking is unchanged.
+    assert.ok(classes.includes('fixed') && classes.includes('z-[100]'));
+  });
+
   it('the provider clears all timers when it unmounts', () => {
     assert.match(readFileSync(providerFile, 'utf8'), /useEffect\(\(\) => \(\) => store\.dispose\(\), \[store\]\)/);
   });
