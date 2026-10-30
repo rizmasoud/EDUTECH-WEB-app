@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient, Teacher, TeacherSkillItem, BookItem } from '../../lib/api-client';
 import { TeacherSkillTitle } from './TeacherSkillTitle';
+import { useNotifications } from '../ui/NotificationProvider';
+import { InlineError } from '../ui/InlineError';
 import {
   GraduationCap,
   Search,
   Plus,
   Edit2,
-  CheckCircle2,
   AlertCircle,
   RefreshCw,
   X,
@@ -32,7 +33,10 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Errors of an open dialog live inside that dialog (formError / skillsError); `error` is only the list-load failure.
+  const [formError, setFormError] = useState<string | null>(null);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const notifier = useNotifications();
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,6 +84,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
   }, [page, search]);
 
   const openCreateModal = () => {
+    setFormError(null);
     setEditingTeacher(null);
     setFormFirstName('');
     setFormLastName('');
@@ -89,6 +94,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
   };
 
   const openEditModal = (teacher: Teacher) => {
+    setFormError(null);
     setEditingTeacher(teacher);
     setFormFirstName(teacher.firstName);
     setFormLastName(teacher.lastName);
@@ -99,12 +105,13 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
 
   const openSkillsModal = async (teacher: Teacher) => {
     setSkillsTeacher(teacher);
+    setSkillsError(null);
     setSkillsLoading(true);
     try {
       const skills = await apiClient.getTeacherSkills(teacher.id);
       setTeacherSkills(skills);
     } catch (err: any) {
-      console.error('Failed to load teacher skills:', err);
+      setSkillsError(err.message || 'Failed to load teacher skills');
     } finally {
       setSkillsLoading(false);
     }
@@ -113,11 +120,11 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
   const handleSaveTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formFirstName || !formLastName) {
-      setError('First and last name are required.');
+      setFormError('First and last name are required.');
       return;
     }
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       if (editingTeacher) {
         await apiClient.updateTeacher(editingTeacher.id, {
@@ -126,7 +133,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
           baseRate: formBaseRate,
           isActive: formIsActive,
         });
-        setSuccessMsg(`Teacher "${formFirstName} ${formLastName}" updated successfully.`);
+        notifier.success(`Teacher "${formFirstName} ${formLastName}" updated successfully.`);
       } else {
         await apiClient.createTeacher({
           firstName: formFirstName,
@@ -134,12 +141,12 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
           baseRate: formBaseRate,
           isActive: formIsActive,
         });
-        setSuccessMsg(`Teacher "${formFirstName} ${formLastName}" registered successfully.`);
+        notifier.success(`Teacher "${formFirstName} ${formLastName}" registered successfully.`);
       }
       setIsModalOpen(false);
       fetchTeachersAndBooks();
     } catch (err: any) {
-      setError(err.message || 'Failed to save teacher');
+      setFormError(err.message || 'Failed to save teacher');
     } finally {
       setActionLoading(false);
     }
@@ -149,16 +156,16 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
     e.preventDefault();
     if (!skillsTeacher || !selectedBookIdForSkill) return;
     setActionLoading(true);
-    setError(null);
+    setSkillsError(null);
     try {
       await apiClient.addTeacherSkill(skillsTeacher.id, {
         bookId: selectedBookIdForSkill,
       });
-      setSuccessMsg(`Skill assigned to ${skillsTeacher.firstName} ${skillsTeacher.lastName}.`);
+      notifier.success(`Skill assigned to ${skillsTeacher.firstName} ${skillsTeacher.lastName}.`);
       const updatedSkills = await apiClient.getTeacherSkills(skillsTeacher.id);
       setTeacherSkills(updatedSkills);
     } catch (err: any) {
-      setError(err.message || 'Failed to add teacher skill qualification');
+      setSkillsError(err.message || 'Failed to add teacher skill qualification');
     } finally {
       setActionLoading(false);
     }
@@ -167,14 +174,14 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
   const handleDeleteSkill = async (skillId: string) => {
     if (!skillsTeacher) return;
     setActionLoading(true);
-    setError(null);
+    setSkillsError(null);
     try {
       await apiClient.deleteTeacherSkill(skillsTeacher.id, skillId);
-      setSuccessMsg('Skill qualification removed.');
+      notifier.success('Skill qualification removed.');
       const updatedSkills = await apiClient.getTeacherSkills(skillsTeacher.id);
       setTeacherSkills(updatedSkills);
     } catch (err: any) {
-      setError(err.message || 'Failed to remove skill');
+      setSkillsError(err.message || 'Failed to remove skill');
     } finally {
       setActionLoading(false);
     }
@@ -228,17 +235,6 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {/* Filter / Search Bar */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -278,7 +274,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
               <thead>
                 <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold">
                   <th className="p-4">Teacher Name</th>
-                  <th className="p-4">دستمزد هر کلاس</th>
+                  <th className="p-4">Pay per Class</th>
                   <th className="p-4">Account Linked</th>
                   <th className="p-4">Status</th>
                   <th className="p-4 text-right">Actions</th>
@@ -354,6 +350,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
             </div>
 
             <form onSubmit={handleSaveTeacher} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">First Name *</label>
@@ -378,7 +375,7 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">دستمزد هر کلاس *</label>
+                <label className="block text-slate-300 font-semibold mb-1">Pay per Class *</label>
                 <input
                   type="text"
                   value={formBaseRate}
@@ -443,6 +440,8 @@ export function TeachersManager({ isSupervisor = true }: TeachersManagerProps) {
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            <InlineError message={skillsError} />
 
             {/* Add Skill Form */}
             {isSupervisor && (

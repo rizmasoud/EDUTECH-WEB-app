@@ -1,4 +1,4 @@
-/** Persian labels for enum values shown in the shell and Overview. Terminology is fixed by product decision. */
+/** English labels for enum values shown in the shell, Overview and notifications. */
 
 import type { AcademicTerm, SchedulingProposal } from './api-client';
 
@@ -9,11 +9,11 @@ export const TERM_STATUS_LABEL: Record<AcademicTerm['status'], string> = {
 };
 
 export const PROPOSAL_STATUS_LABEL: Record<SchedulingProposal['status'], string> = {
-  DRAFT: 'پیش‌نویس',
-  PENDING_REVIEW: 'در انتظار بررسی',
-  ACCEPTED: 'پذیرفته‌شده',
-  MODIFIED: 'ویرایش‌شده',
-  REJECTED: 'ردشده',
+  DRAFT: 'Draft',
+  PENDING_REVIEW: 'Pending review',
+  ACCEPTED: 'Accepted',
+  MODIFIED: 'Modified',
+  REJECTED: 'Rejected',
 };
 
 /** Role names as returned by the API (`UserAccount.roles`). */

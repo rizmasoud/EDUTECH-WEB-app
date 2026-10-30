@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiClient, StudentItem, EnrollmentItem } from '../../lib/api-client';
+import { useNotifications } from '../ui/NotificationProvider';
+import { InlineError } from '../ui/InlineError';
 import { formatPersianDate } from '../../../../lib/utils';
 import { getClassDisplayName } from '../../lib/scheduling-utils';
 import {
@@ -9,7 +11,6 @@ import {
   Search,
   Plus,
   Edit2,
-  CheckCircle2,
   AlertCircle,
   RefreshCw,
   X,
@@ -35,7 +36,10 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Errors of an open dialog live inside that dialog (formError / inspectError); `error` is only the list-load failure.
+  const [formError, setFormError] = useState<string | null>(null);
+  const [inspectError, setInspectError] = useState<string | null>(null);
+  const notifier = useNotifications();
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -79,6 +83,7 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
   };
 
   const openCreateModal = () => {
+    setFormError(null);
     setEditingStudent(null);
     setFormFirstName('');
     setFormLastName('');
@@ -98,6 +103,7 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
   }, [createRequestKey, loading, isSupervisor]);
 
   const openEditModal = (student: StudentItem) => {
+    setFormError(null);
     setEditingStudent(student);
     setFormFirstName(student.firstName);
     setFormLastName(student.lastName);
@@ -108,12 +114,13 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
 
   const openInspectModal = async (student: StudentItem) => {
     setInspectingStudent(student);
+    setInspectError(null);
     setEnrollmentsLoading(true);
     try {
       const enrollments = await apiClient.getStudentEnrollments(student.id);
       setStudentEnrollments(enrollments);
     } catch (err: any) {
-      console.error('Failed to load student enrollments:', err);
+      setInspectError(err.message || 'Failed to load student enrollments');
     } finally {
       setEnrollmentsLoading(false);
     }
@@ -122,11 +129,11 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formFirstName || !formLastName) {
-      setError('First and last name are required.');
+      setFormError('First and last name are required.');
       return;
     }
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       if (editingStudent) {
         await apiClient.updateStudent(editingStudent.id, {
@@ -135,7 +142,7 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
           shahvarCode: formShahvarCode.trim() || null,
           isActive: formIsActive,
         });
-        setSuccessMsg(`Student "${formFirstName} ${formLastName}" updated successfully.`);
+        notifier.success(`Student "${formFirstName} ${formLastName}" updated successfully.`);
       } else {
         await apiClient.createStudent({
           firstName: formFirstName,
@@ -143,12 +150,12 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
           shahvarCode: formShahvarCode.trim() || null,
           isActive: formIsActive,
         });
-        setSuccessMsg(`Student "${formFirstName} ${formLastName}" registered successfully.`);
+        notifier.success(`Student "${formFirstName} ${formLastName}" registered successfully.`);
       }
       setIsModalOpen(false);
       fetchStudents();
     } catch (err: any) {
-      setError(err.message || 'Failed to save student record');
+      setFormError(err.message || 'Failed to save student record');
     } finally {
       setActionLoading(false);
     }
@@ -204,17 +211,6 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {/* Filter / Search Bar */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -351,6 +347,7 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
             </div>
 
             <form onSubmit={handleSaveStudent} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">First Name *</label>
@@ -439,6 +436,8 @@ export function StudentsManager({ isSupervisor = true, createRequestKey = 0 }: S
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            <InlineError message={inspectError} />
 
             <div className="space-y-3">
               {enrollmentsLoading ? (

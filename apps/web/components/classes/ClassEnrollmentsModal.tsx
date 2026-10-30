@@ -9,12 +9,13 @@ import {
 } from '../../lib/api-client';
 import { formatPersianDate } from '../../../../lib/utils';
 import { getClassDisplayName } from '../../lib/scheduling-utils';
+import { useNotifications } from '../ui/NotificationProvider';
+import { InlineError } from '../ui/InlineError';
 import {
   Users,
   Plus,
   X,
   AlertCircle,
-  CheckCircle2,
   RefreshCw,
   UserPlus,
   UserMinus,
@@ -41,7 +42,10 @@ export function ClassEnrollmentsModal({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // `error` is the roster-load failure; `actionError` is a failed enroll/withdraw/complete. Both render inside this
+  // dialog (its overlay would cover a page-level message). Successes are transient notifications.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const notifier = useNotifications();
   const [studentSearch, setStudentSearch] = useState('');
 
   const fetchEnrollmentsAndStudents = async () => {
@@ -73,17 +77,17 @@ export function ClassEnrollmentsModal({
     e.preventDefault();
     if (!classItem || !selectedStudentId) return;
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.createEnrollment(classItem.id, {
         studentId: selectedStudentId,
         status: 'ACTIVE',
       });
-      setSuccessMsg('Student successfully enrolled in class.');
+      notifier.success('Student successfully enrolled in class.');
       await fetchEnrollmentsAndStudents();
       if (onEnrollmentChanged) onEnrollmentChanged();
     } catch (err: any) {
-      setError(err.message || 'Failed to enroll student');
+      setActionError(err.message || 'Failed to enroll student');
     } finally {
       setActionLoading(false);
     }
@@ -94,14 +98,14 @@ export function ClassEnrollmentsModal({
       return;
     }
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.withdrawEnrollment(enrollmentId);
-      setSuccessMsg('Enrollment marked as WITHDRAWN.');
+      notifier.success('Enrollment marked as WITHDRAWN.');
       await fetchEnrollmentsAndStudents();
       if (onEnrollmentChanged) onEnrollmentChanged();
     } catch (err: any) {
-      setError(err.message || 'Failed to withdraw student');
+      setActionError(err.message || 'Failed to withdraw student');
     } finally {
       setActionLoading(false);
     }
@@ -109,14 +113,14 @@ export function ClassEnrollmentsModal({
 
   const handleComplete = async (enrollmentId: string) => {
     setActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiClient.completeEnrollment(enrollmentId);
-      setSuccessMsg('Enrollment marked as COMPLETED.');
+      notifier.success('Enrollment marked as COMPLETED.');
       await fetchEnrollmentsAndStudents();
       if (onEnrollmentChanged) onEnrollmentChanged();
     } catch (err: any) {
-      setError(err.message || 'Failed to complete enrollment');
+      setActionError(err.message || 'Failed to complete enrollment');
     } finally {
       setActionLoading(false);
     }
@@ -159,30 +163,9 @@ export function ClassEnrollmentsModal({
           </button>
         </div>
 
-        {/* Notifications */}
-        {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
-              <span>{error}</span>
-            </div>
-            <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {successMsg && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs text-emerald-300 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-            <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
+        {/* Errors stay inside the dialog until dismissed or the action is retried. */}
+        <InlineError message={error} onDismiss={() => setError(null)} />
+        <InlineError message={actionError} onDismiss={() => setActionError(null)} />
 
         {/* Enroll Student Form */}
         {isSupervisor && classItem.status !== 'CANCELLED' && classItem.status !== 'COMPLETED' && (

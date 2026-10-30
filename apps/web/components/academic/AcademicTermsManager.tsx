@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient, AcademicTerm } from '../../lib/api-client';
+import { useNotifications } from '../ui/NotificationProvider';
+import { InlineError } from '../ui/InlineError';
 import { formatPersianDate } from '../../../../lib/utils';
 import {
   Calendar,
   Plus,
   Edit2,
-  CheckCircle2,
   Lock,
   Clock,
   AlertCircle,
@@ -32,7 +33,10 @@ export function AcademicTermsManager({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Errors of the create/edit dialog live inside it; `error` is only the list-load failure. A failed
+  // activate/close has no dialog, so it is reported as a notification.
+  const [formError, setFormError] = useState<string | null>(null);
+  const notifier = useNotifications();
 
   // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -62,6 +66,7 @@ export function AcademicTermsManager({
   }, []);
 
   const openCreateModal = () => {
+    setFormError(null);
     setFormName('');
     setFormStartDate('');
     setFormEndDate('');
@@ -70,6 +75,7 @@ export function AcademicTermsManager({
   };
 
   const openEditModal = (term: AcademicTerm) => {
+    setFormError(null);
     setEditingTerm(term);
     setFormName(term.name);
     setFormStartDate(term.startDate);
@@ -80,11 +86,11 @@ export function AcademicTermsManager({
   const handleCreateTerm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName || !formStartDate || !formEndDate) {
-      setError('Please fill in all required fields.');
+      setFormError('Please fill in all required fields.');
       return;
     }
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       await apiClient.createAcademicTerm({
         name: formName,
@@ -92,11 +98,11 @@ export function AcademicTermsManager({
         endDate: formEndDate,
         status: formStatus,
       });
-      setSuccessMsg(`Academic term "${formName}" created successfully.`);
+      notifier.success(`Academic term "${formName}" created successfully.`);
       setIsCreateModalOpen(false);
       fetchTerms();
     } catch (err: any) {
-      setError(err.message || 'Failed to create academic term');
+      setFormError(err.message || 'Failed to create academic term');
     } finally {
       setActionLoading(false);
     }
@@ -106,18 +112,18 @@ export function AcademicTermsManager({
     e.preventDefault();
     if (!editingTerm) return;
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       await apiClient.updateAcademicTerm(editingTerm.id, {
         name: formName,
         startDate: formStartDate,
         endDate: formEndDate,
       });
-      setSuccessMsg(`Academic term "${formName}" updated successfully.`);
+      notifier.success(`Academic term "${formName}" updated successfully.`);
       setEditingTerm(null);
       fetchTerms();
     } catch (err: any) {
-      setError(err.message || 'Failed to update academic term');
+      setFormError(err.message || 'Failed to update academic term');
     } finally {
       setActionLoading(false);
     }
@@ -128,13 +134,12 @@ export function AcademicTermsManager({
       return;
     }
     setActionLoading(true);
-    setError(null);
     try {
       await apiClient.activateAcademicTerm(term.id);
-      setSuccessMsg(`Term "${term.name}" is now ACTIVE.`);
+      notifier.success(`Term "${term.name}" is now ACTIVE.`);
       fetchTerms();
     } catch (err: any) {
-      setError(err.message || 'Failed to activate academic term');
+      notifier.error(err.message || 'Failed to activate academic term');
     } finally {
       setActionLoading(false);
     }
@@ -149,13 +154,12 @@ export function AcademicTermsManager({
       return;
     }
     setActionLoading(true);
-    setError(null);
     try {
       await apiClient.closeAcademicTerm(term.id);
-      setSuccessMsg(`Term "${term.name}" is now CLOSED.`);
+      notifier.success(`Term "${term.name}" is now CLOSED.`);
       fetchTerms();
     } catch (err: any) {
-      setError(err.message || 'Failed to close academic term');
+      notifier.error(err.message || 'Failed to close academic term');
     } finally {
       setActionLoading(false);
     }
@@ -237,17 +241,6 @@ export function AcademicTermsManager({
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {/* Terms Table */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -366,6 +359,7 @@ export function AcademicTermsManager({
             </div>
 
             <form onSubmit={editingTerm ? handleUpdateTerm : handleCreateTerm} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Term Name *</label>
                 <input

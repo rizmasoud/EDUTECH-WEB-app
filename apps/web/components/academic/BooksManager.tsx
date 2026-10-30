@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient, BookItem, BookPartItem, BookSegmentItem } from '../../lib/api-client';
+import { useNotifications } from '../ui/NotificationProvider';
+import { InlineError } from '../ui/InlineError';
 import {
   BookOpen,
   Plus,
   Edit2,
-  CheckCircle2,
   ChevronRight,
   ChevronDown,
   Layers,
@@ -26,7 +27,10 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Errors of an open dialog (book, part or segment: only one is open at a time) live inside it; `error` is only the
+  // list-load failure.
+  const [formError, setFormError] = useState<string | null>(null);
+  const notifier = useNotifications();
 
   // Expanded hierarchy states
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
@@ -105,6 +109,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   };
 
   const openCreateBookModal = () => {
+    setFormError(null);
     setEditingBook(null);
     setBookName('');
     setBookLevel('');
@@ -115,6 +120,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   };
 
   const openEditBookModal = (book: BookItem) => {
+    setFormError(null);
     setEditingBook(book);
     setBookName(book.name);
     setBookLevel(book.level);
@@ -125,6 +131,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   };
 
   const openCreatePartModal = (book: BookItem) => {
+    setFormError(null);
     setSelectedBookForPart(book);
     setPartName('');
     const existingCount = (bookParts[book.id] || []).length;
@@ -133,6 +140,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   };
 
   const openCreateSegmentModal = (part: BookPartItem) => {
+    setFormError(null);
     setSelectedPartForSegment(part);
     setSegmentName('');
     const existingCount = (partSegments[part.id] || []).length;
@@ -143,7 +151,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
   const handleSaveBook = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       if (editingBook) {
         await apiClient.updateBook(editingBook.id, {
@@ -153,7 +161,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
           sessionCount: Number(bookSessionCount),
           isTerminal: bookIsTerminal,
         });
-        setSuccessMsg(`Book "${bookName}" updated successfully.`);
+        notifier.success(`Book "${bookName}" updated successfully.`);
       } else {
         await apiClient.createBook({
           name: bookName,
@@ -162,12 +170,12 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
           sessionCount: Number(bookSessionCount),
           isTerminal: bookIsTerminal,
         });
-        setSuccessMsg(`Book "${bookName}" created successfully.`);
+        notifier.success(`Book "${bookName}" created successfully.`);
       }
       setIsBookModalOpen(false);
       fetchBooks();
     } catch (err: any) {
-      setError(err.message || 'Failed to save book');
+      setFormError(err.message || 'Failed to save book');
     } finally {
       setActionLoading(false);
     }
@@ -177,19 +185,19 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
     e.preventDefault();
     if (!selectedBookForPart) return;
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       await apiClient.createBookPart(selectedBookForPart.id, {
         name: partName,
         sequenceOrder: Number(partSeqOrder),
       });
-      setSuccessMsg(`Part "${partName}" added to "${selectedBookForPart.name}".`);
+      notifier.success(`Part "${partName}" added to "${selectedBookForPart.name}".`);
       setIsPartModalOpen(false);
       // Refresh parts for this book
       const parts = await apiClient.getBookParts(selectedBookForPart.id);
       setBookParts((prev) => ({ ...prev, [selectedBookForPart.id]: parts }));
     } catch (err: any) {
-      setError(err.message || 'Failed to add book part');
+      setFormError(err.message || 'Failed to add book part');
     } finally {
       setActionLoading(false);
     }
@@ -199,19 +207,19 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
     e.preventDefault();
     if (!selectedPartForSegment) return;
     setActionLoading(true);
-    setError(null);
+    setFormError(null);
     try {
       await apiClient.createBookSegment(selectedPartForSegment.id, {
         name: segmentName,
         sequenceOrder: Number(segmentSeqOrder),
       });
-      setSuccessMsg(`Segment "${segmentName}" added to "${selectedPartForSegment.name}".`);
+      notifier.success(`Segment "${segmentName}" added to "${selectedPartForSegment.name}".`);
       setIsSegmentModalOpen(false);
       // Refresh segments for this part
       const segments = await apiClient.getBookSegments(selectedPartForSegment.id);
       setPartSegments((prev) => ({ ...prev, [selectedPartForSegment.id]: segments }));
     } catch (err: any) {
-      setError(err.message || 'Failed to add book segment');
+      setFormError(err.message || 'Failed to add book segment');
     } finally {
       setActionLoading(false);
     }
@@ -265,17 +273,6 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
         </div>
       )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {/* Books List & Hierarchy */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -455,6 +452,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
             </div>
 
             <form onSubmit={handleSaveBook} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Book / Course Name *</label>
                 <input
@@ -555,6 +553,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
             </div>
 
             <form onSubmit={handleSavePart} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Part Name *</label>
                 <input
@@ -616,6 +615,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
             </div>
 
             <form onSubmit={handleSaveSegment} className="space-y-4 text-xs">
+              <InlineError message={formError} />
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Segment Title *</label>
                 <input

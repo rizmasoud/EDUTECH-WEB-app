@@ -13,7 +13,7 @@ import { AppShell, type NavItem } from '../components/shell/AppShell';
 import { OverviewPage } from '../components/overview/OverviewPage';
 import { LoginView } from '../components/auth/LoginView';
 import { LoadingState } from '../components/ui/LoadingState';
-import { Toast } from '../components/ui/Toast';
+import { NotificationProvider, useNotifications } from '../components/ui/NotificationProvider';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { AppDataController, classesMatchTerm } from '../lib/app-data-controller';
 import { describeLoginError } from '../lib/auth-errors';
@@ -75,7 +75,24 @@ function LegacyArea({ children }: { children: React.ReactNode }) {
   return <div dir="ltr">{children}</div>;
 }
 
+/** Pluralize an English noun for a count ("1 conflict", "2 conflicts"). */
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/**
+ * The one place the app-wide notification provider is mounted (both layout files render this page), so every
+ * screen and dialog below can reach it through `useNotifications()`.
+ */
 export default function SchedulingAppPage() {
+  return (
+    <NotificationProvider>
+      <SchedulingApp />
+    </NotificationProvider>
+  );
+}
+
+function SchedulingApp() {
   // Authentication & Role State - RBAC strictly derived from authenticated session
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -112,10 +129,6 @@ export default function SchedulingAppPage() {
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [notification, setNotification] = useState<{
-    type: 'success' | 'error' | 'info';
-    message: string;
-  } | null>(null);
 
   // Modals State
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
@@ -124,12 +137,10 @@ export default function SchedulingAppPage() {
   const [manualModalSchedule, setManualModalSchedule] = useState<Schedule | null>(null);
   const [manualModalDay, setManualModalDay] = useState<number | undefined>(undefined);
 
-  // Flash notification helper
+  // Every notification has its own id and timer (lib/notifications.ts); errors stay until dismissed.
+  const notifier = useNotifications();
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => {
-      setNotification((prev) => (prev?.message === message ? null : prev));
-    }, 5000);
+    notifier.notify(type, message);
   };
 
   // Real Authentication Logout
@@ -266,11 +277,11 @@ export default function SchedulingAppPage() {
 
       showNotification(
         'success',
-        `پیشنهاد زمان‌بندی ساخته شد. ${evaluatedCount} کلاس بررسی شد (${validCount} بدون تداخل، ${conflictedCount} دارای تداخل).`
+        `Scheduling proposal created. ${plural(evaluatedCount, 'class', 'classes')} evaluated (${validCount} without conflicts, ${conflictedCount} with conflicts).`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `ساخت پیشنهاد زمان‌بندی انجام نشد: ${err.message}`);
+      // Not toasted: ProposalGeneratorModal shows this error inline, and a second copy would duplicate it.
       throw err;
     } finally {
       setActionLoading(false);
@@ -288,12 +299,12 @@ export default function SchedulingAppPage() {
       showNotification(
         res.isStillValid ? 'success' : 'info',
         res.isStillValid
-          ? 'پیشنهاد دوباره بررسی شد و همه زمان‌ها بدون تداخل هستند.'
-          : `بررسی دوباره انجام شد: ${res.conflicts.length} تداخل پیدا شد.`
+          ? 'Proposal re-validated: all slots are conflict-free.'
+          : `Re-validation complete: ${plural(res.conflicts.length, 'conflict')} found.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `بررسی پیشنهاد انجام نشد: ${err.message}`);
+      showNotification('error', `Could not re-validate the proposal: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -306,14 +317,14 @@ export default function SchedulingAppPage() {
       const res = await apiClient.acceptProposal(proposalId);
       showNotification(
         'success',
-        `پیشنهاد پذیرفته شد و ${res.committedSchedulesCount} زمان کلاس ثبت شد.`
+        `Proposal accepted. ${plural(res.committedSchedulesCount, 'class schedule')} saved.`
       );
       // Update proposal state
       const updated = await apiClient.getProposalById(proposalId);
       setActiveProposal(updated);
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `پذیرش پیشنهاد انجام نشد: ${err.message}`);
+      showNotification('error', `Could not accept the proposal: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -325,10 +336,10 @@ export default function SchedulingAppPage() {
     try {
       const res = await apiClient.rejectProposal(proposalId);
       setActiveProposal(res);
-      showNotification('info', 'پیشنهاد رد شد.');
+      showNotification('info', 'Proposal rejected.');
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `رد پیشنهاد انجام نشد: ${err.message}`);
+      showNotification('error', `Could not reject the proposal: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -345,11 +356,11 @@ export default function SchedulingAppPage() {
       setActiveProposal(updated);
       showNotification(
         'success',
-        `زمان کلاس ویرایش شد. وضعیت پیشنهاد: ${PROPOSAL_STATUS_LABEL[updated.status] ?? updated.status}.`
+        `Class time updated. Proposal status: ${PROPOSAL_STATUS_LABEL[updated.status] ?? updated.status}.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `ویرایش زمان کلاس انجام نشد: ${err.message}`);
+      // Not toasted: ProposalReviewPanel shows this error inline next to the slot being edited.
       throw err;
     } finally {
       setActionLoading(false);
@@ -414,11 +425,11 @@ export default function SchedulingAppPage() {
       const targetCls = classes.find((c) => c.id === params.classId);
       showNotification(
         'success',
-        `برنامه هفتگی «${getClassDisplayName(targetCls, 'Class')}» ذخیره شد (${params.sessions.length} جلسه در هفته).`
+        `Weekly schedule for "${getClassDisplayName(targetCls, 'Class')}" saved (${plural(params.sessions.length, 'session')} per week).`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `ذخیره برنامه هفتگی انجام نشد: ${err.message}`);
+      // Not toasted: ManualScheduleModal shows this error inline.
       throw err;
     } finally {
       setActionLoading(false);
@@ -444,11 +455,11 @@ export default function SchedulingAppPage() {
       }
       showNotification(
         'success',
-        `همه زمان‌های «${getClassDisplayName(targetCls, 'Class')}» حذف شد.`
+        `All schedule slots for "${getClassDisplayName(targetCls, 'Class')}" were removed.`
       );
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `حذف زمان‌ها انجام نشد: ${err.message}`);
+      // Not toasted here: ManualScheduleModal shows it inline; the Overview call site reports it (see below).
       throw err;
     } finally {
       setActionLoading(false);
@@ -473,7 +484,7 @@ export default function SchedulingAppPage() {
         startsOn: data.startsOn,
         endsOn: data.endsOn,
       });
-      showNotification('success', 'زمان کلاس به‌روزرسانی شد.');
+      showNotification('success', 'Class schedule updated.');
     } else {
       await apiClient.createSchedule({
         classId: data.classId,
@@ -483,7 +494,7 @@ export default function SchedulingAppPage() {
         startsOn: data.startsOn,
         endsOn: data.endsOn,
       });
-      showNotification('success', 'زمان جدید برای کلاس ثبت شد.');
+      showNotification('success', 'New class schedule added.');
     }
     await refreshData();
   };
@@ -493,10 +504,10 @@ export default function SchedulingAppPage() {
     if (!confirm('Are you sure you want to remove this schedule slot?')) return;
     try {
       await apiClient.deleteSchedule(schedule.id);
-      showNotification('success', 'زمان کلاس حذف شد.');
+      showNotification('success', 'Class schedule slot removed.');
       await refreshData();
     } catch (err: any) {
-      showNotification('error', `حذف زمان کلاس انجام نشد: ${err.message}`);
+      showNotification('error', `Could not remove the class schedule slot: ${err.message}`);
     }
   };
 
@@ -522,10 +533,6 @@ export default function SchedulingAppPage() {
     setIsManualModalOpen(true);
   };
 
-  const toast = notification ? (
-    <Toast type={notification.type} message={notification.message} onDismiss={() => setNotification(null)} />
-  ) : null;
-
   // 1. Checking the existing session (no login request is ever sent from here).
   if (authLoading) {
     return (
@@ -548,7 +555,6 @@ export default function SchedulingAppPage() {
           submitting={actionLoading}
           error={authError}
         />
-        {toast}
       </>
     );
   }
@@ -759,7 +765,11 @@ export default function SchedulingAppPage() {
                     onOpenManualSchedule={handleOpenManualFromOverview}
                     onDeleteSchedule={handleDeleteSchedule}
                     onDeleteAllClassSchedules={async (cls) => {
-                      await handleDeleteAllClassSchedules(cls.id);
+                      try {
+                        await handleDeleteAllClassSchedules(cls.id);
+                      } catch (err: any) {
+                        showNotification('error', `Could not remove the schedule slots: ${err.message}`);
+                      }
                     }}
                   />
                 )}
@@ -883,8 +893,6 @@ export default function SchedulingAppPage() {
         }}
       />
       </LegacyArea>
-
-      {toast}
     </>
   );
 }
