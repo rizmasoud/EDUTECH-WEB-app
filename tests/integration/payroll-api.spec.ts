@@ -618,45 +618,22 @@ describe('Payroll and Private Classes Integration Tests (Phase 11)', () => {
   });
 
   describe('3. Authorization, RBAC & IDOR Prevention', () => {
-    it('Teacher A can view their own payroll details and items', async () => {
-      const payrollsRes = await fetch(`${baseUrl}/payrolls`, {
-        headers: {
-          Authorization: `Bearer ${teacherAToken}`,
-        },
-      });
-      assert.strictEqual(payrollsRes.status, 200);
-      const list = await payrollsRes.json();
+    it('Teacher A cannot view any payroll data, not even their own (financial privacy: supervisors only)', async () => {
+      // The supervisor still lists, reads details and reads items.
+      const supList = await fetch(`${baseUrl}/payrolls`, { headers: { Authorization: `Bearer ${supervisorToken}` } });
+      assert.strictEqual(supList.status, 200);
+      const list = (await supList.json()).filter((p: any) => p.teacherId === teacherAId);
       assert.ok(list.length >= 1);
-      assert.strictEqual(list[0].teacherId, teacherAId);
-
-      // GET /payrolls/:id
-      const detailRes = await fetch(`${baseUrl}/payrolls/${list[0].id}`, {
-        headers: {
-          Authorization: `Bearer ${teacherAToken}`,
-        },
+      const supItems = await fetch(`${baseUrl}/payrolls/${list[0].id}/items`, {
+        headers: { Authorization: `Bearer ${supervisorToken}` },
       });
-      assert.strictEqual(detailRes.status, 200);
+      assert.strictEqual(supItems.status, 200);
+      assert.ok((await supItems.json()).length >= 2);
 
-      // GET /payrolls/:id/items
-      const itemsRes = await fetch(`${baseUrl}/payrolls/${list[0].id}/items`, {
-        headers: {
-          Authorization: `Bearer ${teacherAToken}`,
-        },
-      });
-      assert.strictEqual(itemsRes.status, 200);
-      const items = await itemsRes.json();
-      assert.ok(items.length >= 2);
-    });
-
-    it('Teacher A can view their payrolls via GET /teachers/:id/payrolls', async () => {
-      const res = await fetch(`${baseUrl}/teachers/${teacherAId}/payrolls`, {
-        headers: {
-          Authorization: `Bearer ${teacherAToken}`,
-        },
-      });
-      assert.strictEqual(res.status, 200);
-      const list = await res.json();
-      assert.ok(list.length >= 1);
+      for (const path of ['/payrolls', `/payrolls/${list[0].id}`, `/payrolls/${list[0].id}/items`, `/teachers/${teacherAId}/payrolls`]) {
+        const res = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${teacherAToken}` } });
+        assert.strictEqual(res.status, 403, `${path} must be forbidden for a teacher`);
+      }
     });
 
     it('Teacher A cannot view Teacher B payrolls via GET /teachers/:id/payrolls (IDOR prevention)', async () => {

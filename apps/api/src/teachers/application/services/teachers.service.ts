@@ -220,7 +220,11 @@ export class TeachersService {
       });
     }
 
-    const result = await this.classRepo.findAll({ teacherId, pageSize: 100 });
+    // A teacher sees only their current classes (ACTIVE class in the ACTIVE term); supervisors see all.
+    const result = await this.classRepo.findAll(
+      { teacherId, pageSize: 100 },
+      { currentOnly: !isSupervisor(currentUser) },
+    );
     const items = await Promise.all(
       result.items.map(async (cls) => {
         const count = await this.classRepo.countActiveEnrollments(cls.id);

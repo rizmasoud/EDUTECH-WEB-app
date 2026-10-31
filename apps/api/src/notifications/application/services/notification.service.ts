@@ -98,6 +98,17 @@ export class NotificationService {
   }
 
   /**
+   * Payroll notifications written before amounts were removed from their text may still contain totals;
+   * anyone but a supervisor gets a neutral message instead.
+   */
+  private redactFinancialMessage(type: string, message: string, user: AuthUser): string {
+    if (user.roles.includes('SUPERVISOR')) return message;
+    if (type === 'PAYROLL_READY') return 'Your payroll for the current academic term has been calculated.';
+    if (type === 'PAYROLL_FINALIZED') return 'Your payroll for the academic term has been finalized.';
+    return message;
+  }
+
+  /**
    * GET /api/v1/notifications
    * Returns authenticated user's notifications and unread count.
    */
@@ -135,7 +146,7 @@ export class NotificationService {
       recipientAccountId: r.recipientAccountId,
       type: r.type,
       title: r.title,
-      message: r.message,
+      message: this.redactFinancialMessage(r.type, r.message, user),
       referenceEntityType: r.referenceEntityType,
       referenceEntityId: r.referenceEntityId,
       isRead: r.isRead,

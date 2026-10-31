@@ -1194,6 +1194,18 @@ export interface RecordStudentAttendanceDto {
   items: StudentAttendanceItemDto[];
 }
 
+/**
+ * A teacher's own attendance counts, from teacher_attendance_records (never student attendance).
+ * Counts only: no payroll amounts, rates or other financial values.
+ */
+export interface TeacherAttendanceSummaryDto {
+  teacherId: string;
+  sessionsAttended: number; // status PRESENT
+  sessionsAbsent: number; // status ABSENT
+  sessionsExcused: number; // status EXCUSED
+  sessionsRecorded: number; // all of the above
+}
+
 export interface RecordTeacherAttendanceDto {
   teacherId: string;
   status: TeacherAttendanceStatus;

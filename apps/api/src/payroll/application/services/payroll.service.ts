@@ -520,7 +520,8 @@ export class PayrollService {
           recipientAccountId: teacher.accountId,
           type: 'PAYROLL_READY',
           title: 'Payroll Calculated',
-          message: `Your payroll for the current academic term has been calculated (Total: ${totalAmount}).`,
+          // No amounts: teachers must not receive any financial value.
+          message: 'Your payroll for the current academic term has been calculated.',
           referenceEntityType: 'PAYROLL',
           referenceEntityId: payroll.id,
         },
@@ -648,7 +649,7 @@ export class PayrollService {
           recipientAccountId: teacher.accountId,
           type: 'PAYROLL_FINALIZED',
           title: 'Payroll Finalized',
-          message: `Your payroll of ${payroll.totalAmount} has been finalized.`,
+          message: 'Your payroll for the academic term has been finalized.',
           referenceEntityType: 'PAYROLL',
           referenceEntityId: payroll.id,
         },
@@ -759,19 +760,12 @@ export class PayrollService {
    * Query list of payrolls with filters
    */
   async findAll(filter: QueryPayrollsDto, user: AuthUser): Promise<PayrollDto[]> {
-    const isSupervisor = user.roles.includes('SUPERVISOR');
+    // Payroll data is financial: supervisors only (teachers never see any payroll value, their own included).
+    this.assertSupervisor(user);
 
     const conditions: SQL[] = [];
 
-    if (!isSupervisor) {
-      if (!user.teacherId) {
-        throw new ForbiddenException({
-          code: 'FORBIDDEN_RESOURCE',
-          message: 'Teacher account is not associated with a teacher record',
-        });
-      }
-      conditions.push(eq(payrolls.teacherId, user.teacherId));
-    } else if (filter.teacherId) {
+    if (filter.teacherId) {
       conditions.push(eq(payrolls.teacherId, filter.teacherId));
     }
 
@@ -806,6 +800,7 @@ export class PayrollService {
    * Get detailed payroll including itemized breakdown
    */
   async findById(payrollId: string, user: AuthUser): Promise<PayrollDetailDto> {
+    this.assertSupervisor(user);
     const [payroll] = await this.db
       .select()
       .from(payrolls)
@@ -847,6 +842,7 @@ export class PayrollService {
    * Get itemized breakdown for a payroll
    */
   async findItems(payrollId: string, user: AuthUser): Promise<PayrollItemDto[]> {
+    this.assertSupervisor(user);
     const [payroll] = await this.db
       .select()
       .from(payrolls)
@@ -877,15 +873,7 @@ export class PayrollService {
    * Get all payrolls for a specific teacher
    */
   async findTeacherPayrolls(teacherId: string, user: AuthUser): Promise<PayrollDto[]> {
-    const isSupervisor = user.roles.includes('SUPERVISOR');
-    const isOwner = user.teacherId === teacherId;
-
-    if (!isSupervisor && !isOwner) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN_RESOURCE',
-        message: 'You can only view your own payroll records',
-      });
-    }
+    this.assertSupervisor(user);
 
     const results = await this.db
       .select()

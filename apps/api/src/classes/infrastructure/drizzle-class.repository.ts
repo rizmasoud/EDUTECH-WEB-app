@@ -1,5 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, desc, and, count, not } from 'drizzle-orm';
+import { eq, desc, and, count, not, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { classes, enrollments } from '../../infrastructure/database/schema/classes.schema';
@@ -48,8 +48,21 @@ export class DrizzleClassRepository implements IClassRepository {
     return row ? this.mapRowToEntity(row) : null;
   }
 
-  async findAll(filter?: FindClassesFilter): Promise<{ items: Class[]; total: number }> {
+  async findAll(
+    filter?: FindClassesFilter,
+    options?: { currentOnly?: boolean },
+  ): Promise<{ items: Class[]; total: number }> {
     const conditions: SQL[] = [];
+
+    if (options?.currentOnly) {
+      conditions.push(eq(classes.status, 'ACTIVE'));
+      conditions.push(
+        inArray(
+          classes.academicTermId,
+          this.db.select({ id: academicTerms.id }).from(academicTerms).where(eq(academicTerms.status, 'ACTIVE')),
+        ),
+      );
+    }
 
     if (filter?.academicTermId) {
       conditions.push(eq(classes.academicTermId, filter.academicTermId));
@@ -91,6 +104,15 @@ export class DrizzleClassRepository implements IClassRepository {
       items: rows.map((r: typeof classes.$inferSelect) => this.mapRowToEntity(r)),
       total,
     };
+  }
+
+  async isTermActive(termId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: academicTerms.id })
+      .from(academicTerms)
+      .where(and(eq(academicTerms.id, termId), eq(academicTerms.status, 'ACTIVE')))
+      .limit(1);
+    return Boolean(row);
   }
 
   async create(data: CreateClassData): Promise<Class> {

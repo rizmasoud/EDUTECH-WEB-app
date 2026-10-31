@@ -135,6 +135,13 @@ export class EnrollmentsService {
         message: `Class with id ${classId} not found`,
       });
     }
+    // A teacher's own class that is not current is as inaccessible as someone else's.
+    if (
+      scope.kind === 'TEACHER' &&
+      !(cls.status === 'ACTIVE' && (await this.classRepo.isTermActive(cls.academicTermId)))
+    ) {
+      throw forbiddenResource('You do not have permission to access this class');
+    }
 
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));

@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import {
   classSessions,
@@ -19,6 +19,7 @@ import {
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
 import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { students } from '../../../infrastructure/database/schema/students.schema';
+import { teachers } from '../../../infrastructure/database/schema/teachers.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
 import {
   RecordStudentAttendanceSchema,
@@ -27,6 +28,7 @@ import {
 import type {
   RecordStudentAttendanceDto,
   RecordTeacherAttendanceDto,
+  TeacherAttendanceSummaryDto,
   AttendanceRecordWithStudentDto,
   ClassSessionDetailDto,
   AuthUser,
@@ -388,10 +390,19 @@ export class AttendanceService {
     const s = await this.getSessionWithClass(sessionId);
     await this.checkUserSessionAccess(s, user);
 
+    // A teacher only ever reads their OWN attendance record for the session (never the substitute's or the
+    // assigned teacher's); a supervisor reads the session's record.
     const [record] = await this.db
       .select()
       .from(teacherAttendanceRecords)
-      .where(eq(teacherAttendanceRecords.classSessionId, sessionId))
+      .where(
+        and(
+          eq(teacherAttendanceRecords.classSessionId, sessionId),
+          ...(user.roles.includes('SUPERVISOR')
+            ? []
+            : [eq(teacherAttendanceRecords.teacherId, user.teacherId as string)]),
+        ),
+      )
       .limit(1);
 
     if (!record) {
@@ -402,6 +413,55 @@ export class AttendanceService {
     }
 
     return record;
+  }
+
+  /**
+   * GET /api/v1/teachers/:id/attendance-summary
+   * How many sessions the teacher attended / missed AS A TEACHER (teacher_attendance_records; student attendance
+   * lives in a different table). A teacher may read only their own summary; a supervisor any teacher's.
+   * Counts only, nothing financial.
+   */
+  async getTeacherAttendanceSummary(
+    teacherId: string,
+    user: AuthUser,
+  ): Promise<TeacherAttendanceSummaryDto> {
+    const isSupervisor = user.roles.includes('SUPERVISOR');
+    if (!isSupervisor && !(user.roles.includes('TEACHER') && user.teacherId === teacherId)) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN_RESOURCE',
+        message: 'You can only view your own attendance',
+      });
+    }
+
+    const [teacher] = await this.db
+      .select({ id: teachers.id })
+      .from(teachers)
+      .where(eq(teachers.id, teacherId))
+      .limit(1);
+    if (!teacher) {
+      throw new NotFoundException({
+        code: 'RESOURCE_NOT_FOUND',
+        message: `Teacher with id ${teacherId} not found`,
+      });
+    }
+
+    const rows: Array<{ status: string; n: number }> = await this.db
+      .select({ status: teacherAttendanceRecords.status, n: sql<number>`count(*)::int` })
+      .from(teacherAttendanceRecords)
+      .where(eq(teacherAttendanceRecords.teacherId, teacherId))
+      .groupBy(teacherAttendanceRecords.status);
+
+    const count = (status: string) => Number(rows.find((r) => r.status === status)?.n ?? 0);
+    const sessionsAttended = count('PRESENT');
+    const sessionsAbsent = count('ABSENT');
+    const sessionsExcused = count('EXCUSED');
+    return {
+      teacherId,
+      sessionsAttended,
+      sessionsAbsent,
+      sessionsExcused,
+      sessionsRecorded: sessionsAttended + sessionsAbsent + sessionsExcused,
+    };
   }
 
   /**
