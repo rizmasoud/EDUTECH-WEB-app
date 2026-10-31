@@ -6,6 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { eq, and, inArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import {
   classSessions,
@@ -20,6 +21,7 @@ import { substitutionRequests } from '../../../infrastructure/database/schema/su
 import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { teachers } from '../../../infrastructure/database/schema/teachers.schema';
+import { academicTerms } from '../../../infrastructure/database/schema/academics.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
 import {
   RecordStudentAttendanceSchema,
@@ -29,6 +31,7 @@ import type {
   RecordStudentAttendanceDto,
   RecordTeacherAttendanceDto,
   TeacherAttendanceSummaryDto,
+  TeacherAttendanceSummaryScope,
   AttendanceRecordWithStudentDto,
   ClassSessionDetailDto,
   AuthUser,
@@ -419,11 +422,13 @@ export class AttendanceService {
    * GET /api/v1/teachers/:id/attendance-summary
    * How many sessions the teacher attended / missed AS A TEACHER (teacher_attendance_records; student attendance
    * lives in a different table). A teacher may read only their own summary; a supervisor any teacher's.
-   * Counts only, nothing financial.
+   * `term`: 'all' (default), 'current' (classes of the ACTIVE term) or an academic term id. Counts only,
+   * nothing financial.
    */
   async getTeacherAttendanceSummary(
     teacherId: string,
     user: AuthUser,
+    term?: string,
   ): Promise<TeacherAttendanceSummaryDto> {
     const isSupervisor = user.roles.includes('SUPERVISOR');
     if (!isSupervisor && !(user.roles.includes('TEACHER') && user.teacherId === teacherId)) {
@@ -445,10 +450,53 @@ export class AttendanceService {
       });
     }
 
+    // Which terms to count. A record belongs to the term of the class its session belongs to
+    // (teacher_attendance_records -> class_sessions -> classes -> academic_terms); every link is a NOT NULL
+    // foreign key, so every record has exactly one term and none is left unclassified.
+    const conditions: SQL[] = [eq(teacherAttendanceRecords.teacherId, teacherId)];
+    let scope: TeacherAttendanceSummaryScope = 'ALL';
+    let academicTermId: string | null = null;
+
+    if (term === undefined || term === '' || term === 'all') {
+      scope = 'ALL';
+    } else if (term === 'current') {
+      scope = 'CURRENT';
+      const active: Array<{ id: string }> = await this.db
+        .select({ id: academicTerms.id })
+        .from(academicTerms)
+        .where(eq(academicTerms.status, 'ACTIVE'));
+      academicTermId = active.length === 1 ? active[0].id : null;
+      conditions.push(eq(academicTerms.status, 'ACTIVE'));
+    } else {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term)) {
+        throw new BadRequestException({
+          code: 'INVALID_INPUT',
+          message: "term must be 'current', 'all' or an academic term id",
+        });
+      }
+      const [found] = await this.db
+        .select({ id: academicTerms.id })
+        .from(academicTerms)
+        .where(eq(academicTerms.id, term))
+        .limit(1);
+      if (!found) {
+        throw new NotFoundException({
+          code: 'RESOURCE_NOT_FOUND',
+          message: `Academic term with id ${term} not found`,
+        });
+      }
+      scope = 'TERM';
+      academicTermId = found.id;
+      conditions.push(eq(academicTerms.id, found.id));
+    }
+
     const rows: Array<{ status: string; n: number }> = await this.db
       .select({ status: teacherAttendanceRecords.status, n: sql<number>`count(*)::int` })
       .from(teacherAttendanceRecords)
-      .where(eq(teacherAttendanceRecords.teacherId, teacherId))
+      .innerJoin(classSessions, eq(teacherAttendanceRecords.classSessionId, classSessions.id))
+      .innerJoin(classes, eq(classSessions.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(and(...conditions))
       .groupBy(teacherAttendanceRecords.status);
 
     const count = (status: string) => Number(rows.find((r) => r.status === status)?.n ?? 0);
@@ -457,6 +505,8 @@ export class AttendanceService {
     const sessionsExcused = count('EXCUSED');
     return {
       teacherId,
+      scope,
+      academicTermId,
       sessionsAttended,
       sessionsAbsent,
       sessionsExcused,

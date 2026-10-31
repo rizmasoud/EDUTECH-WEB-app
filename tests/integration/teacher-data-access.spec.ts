@@ -542,11 +542,35 @@ describe('Teacher data access is enforced by the backend', () => {
         type: 'PAYROLL_FINALIZED',
         title: 'Payroll Finalized',
         message: 'Your payroll of 12345.67 has been finalized.',
+        referenceEntityType: 'PAYROLL',
+        referenceEntityId: payrollA,
+      });
+      const [accSup] = await db().select().from(accounts).where(eq(accounts.personnelCode, 'SUP-DA'));
+      await db().insert(notifications).values({
+        recipientAccountId: accSup.id,
+        type: 'PAYROLL_FINALIZED',
+        title: 'Payroll Finalized',
+        message: 'Payroll of 12345.67 has been finalized.',
+        referenceEntityType: 'PAYROLL',
+        referenceEntityId: payrollA,
       });
       const res = await json('/notifications', teacherA);
       assert.equal(res.status, 200);
       assert.ok(!res.text.includes('12345.67'), 'an amount reached the teacher');
-      assert.ok(res.body.data.some((n: any) => n.type === 'PAYROLL_FINALIZED'));
+      const n = res.body.data.find((x: any) => x.type === 'PAYROLL_FINALIZED');
+      assert.ok(n);
+      assert.equal(n.referenceEntityType, null, 'no payroll link for a teacher');
+      assert.equal(n.referenceEntityId, null);
+      assert.ok(!res.text.includes(payrollA), 'the payroll id reached the teacher');
+      // marking it read returns the same safe presentation
+      const read = await fetch(`${baseUrl}/api/v1/notifications/${n.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${teacherA}` } });
+      const readText = await read.text();
+      assert.ok(!readText.includes('12345.67') && !readText.includes(payrollA));
+      // the supervisor keeps their own notification untouched
+      const sup = await json('/notifications', supervisor);
+      const sn = sup.body.data.find((x: any) => x.type === 'PAYROLL_FINALIZED');
+      assert.equal(sn.referenceEntityId, payrollA);
+      assert.ok(sn.message.includes('12345.67'));
     });
 
     it('only current ACTIVE classes of the ACTIVE term appear to a teacher; excluded ones are denied directly', async () => {
@@ -599,11 +623,11 @@ describe('Teacher data access is enforced by the backend', () => {
 
       const own = await json(`/teachers/${teacherAId}/attendance-summary`, teacherA);
       assert.equal(own.status, 200);
-      assert.deepEqual(own.body, { teacherId: teacherAId, sessionsAttended: 2, sessionsAbsent: 1, sessionsExcused: 0, sessionsRecorded: 3 });
+      assert.deepEqual(own.body, { teacherId: teacherAId, scope: 'ALL', academicTermId: null, sessionsAttended: 2, sessionsAbsent: 1, sessionsExcused: 0, sessionsRecorded: 3 });
       assert.ok(!/rate|amount|total|pay/i.test(Object.keys(own.body).join(',')), 'no financial key');
 
       const ownB = await json(`/teachers/${teacherBId}/attendance-summary`, teacherB);
-      assert.deepEqual(ownB.body, { teacherId: teacherBId, sessionsAttended: 0, sessionsAbsent: 0, sessionsExcused: 1, sessionsRecorded: 1 });
+      assert.deepEqual(ownB.body, { teacherId: teacherBId, scope: 'ALL', academicTermId: null, sessionsAttended: 0, sessionsAbsent: 0, sessionsExcused: 1, sessionsRecorded: 1 });
 
       assert.equal((await json(`/teachers/${teacherBId}/attendance-summary`, teacherA)).status, 403);
       assert.equal((await json(`/teachers/${teacherAId}/attendance-summary`, teacherB)).status, 403);
@@ -613,6 +637,44 @@ describe('Teacher data access is enforced by the backend', () => {
       assert.equal((await json(`/teachers/${teacherAId}/attendance-summary`, supervisor)).body.sessionsAbsent, 1);
       assert.equal((await json(`/teachers/${teacherBId}/attendance-summary`, supervisor)).body.sessionsExcused, 1);
       assert.equal((await json('/teachers/00000000-0000-4000-8000-000000000000/attendance-summary', supervisor)).status, 404);
+    });
+
+    it('the attendance summary can be limited to the current term or to a specified term', async () => {
+      const [sup] = await db().select().from(accounts).where(eq(accounts.personnelCode, 'SUP-DA'));
+      const oldTerm = (await db().insert(academicTerms).values({ name: 'Summary Old', startDate: '2024-01-01', endDate: '2024-05-01', status: 'CLOSED' }).returning())[0].id as string;
+      const oldClass = await mkClass(teacherAId, 'COMPLETED', oldTerm);
+      const mk = async (day: number, status: string) => {
+        const sid = (await db().insert(classSessions).values({ classId: oldClass, sessionDate: `2024-02-${String(day).padStart(2, '0')}`, startTime: '10:00', endTime: '11:00', status: 'COMPLETED' }).returning())[0].id;
+        await db().insert(teacherAttendanceRecords).values({ classSessionId: sid, teacherId: teacherAId, status, recordedBy: sup.id });
+      };
+      await mk(1, 'PRESENT');
+      await mk(2, 'ABSENT');
+      await mk(3, 'ABSENT');
+
+      const counts = (b: any) => [b.sessionsAttended, b.sessionsAbsent, b.sessionsExcused, b.sessionsRecorded];
+      const all = await json(`/teachers/${teacherAId}/attendance-summary`, teacherA);
+      assert.deepEqual(counts(all.body), [3, 3, 0, 6]);
+      assert.equal((await json(`/teachers/${teacherAId}/attendance-summary?term=all`, teacherA)).body.sessionsRecorded, 6);
+
+      const current = await json(`/teachers/${teacherAId}/attendance-summary?term=current`, teacherA);
+      assert.equal(current.status, 200);
+      assert.equal(current.body.scope, 'CURRENT');
+      assert.deepEqual(counts(current.body), [2, 1, 0, 3]); // only the sessions of the ACTIVE-term classes
+
+      const old = await json(`/teachers/${teacherAId}/attendance-summary?term=${oldTerm}`, teacherA);
+      assert.equal(old.body.scope, 'TERM');
+      assert.equal(old.body.academicTermId, oldTerm);
+      assert.deepEqual(counts(old.body), [1, 2, 0, 3]);
+
+      const empty = (await db().insert(academicTerms).values({ name: 'Summary Empty', startDate: '2030-01-01', endDate: '2030-05-01', status: 'PLANNED' }).returning())[0].id;
+      assert.deepEqual(counts((await json(`/teachers/${teacherAId}/attendance-summary?term=${empty}`, teacherA)).body), [0, 0, 0, 0]);
+
+      assert.equal((await json(`/teachers/${teacherAId}/attendance-summary?term=nope`, teacherA)).status, 400);
+      assert.equal((await json(`/teachers/${teacherAId}/attendance-summary?term=00000000-0000-4000-8000-000000000000`, teacherA)).status, 404);
+      // still own-only, whatever the term
+      assert.equal((await json(`/teachers/${teacherAId}/attendance-summary?term=${oldTerm}`, teacherB)).status, 403);
+      assert.equal((await json(`/teachers/${teacherAId}/attendance-summary?term=current`, teacherB)).status, 403);
+      assert.deepEqual(counts((await json(`/teachers/${teacherAId}/attendance-summary?term=${oldTerm}`, supervisor)).body), [1, 2, 0, 3]);
     });
 
     it('an approved substitute reads the lesson plans of that class only; an unapproved one cannot', async () => {
@@ -651,6 +713,15 @@ describe('Teacher data access is enforced by the backend', () => {
       // approved for a session of class A1 -> A1's plans only, never A2's
       await db().update(substitutionRequests).set({ status: 'APPROVED' }).where(eq(substitutionRequests.id, req.id));
       assert.deepEqual(await reads(teacherB), { a1Plan: 200, a1List: 200, a2Plan: 403, a2List: 403 });
+      // after the session reaches COMPLETED (its APPROVED request becomes COMPLETED) the access is kept, for that class only
+      await db().update(classSessions).set({ status: 'COMPLETED' }).where(eq(classSessions.id, sA1));
+      await db().update(substitutionRequests).set({ status: 'COMPLETED' }).where(eq(substitutionRequests.id, req.id));
+      assert.deepEqual(await reads(teacherB), { a1Plan: 200, a1List: 200, a2Plan: 403, a2List: 403 });
+      // a COMPLETED request approved for another teacher still grants nothing
+      await db().update(substitutionRequests).set({ approvedTeacherId: teacherAId }).where(eq(substitutionRequests.id, req.id));
+      assert.deepEqual(await reads(teacherB), denied);
+      await db().update(substitutionRequests).set({ approvedTeacherId: teacherBId, status: 'APPROVED' }).where(eq(substitutionRequests.id, req.id));
+
       // approval of someone else does not help
       await db().update(substitutionRequests).set({ approvedTeacherId: teacherAId }).where(eq(substitutionRequests.id, req.id));
       assert.deepEqual(await reads(teacherB), denied);

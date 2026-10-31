@@ -533,6 +533,10 @@ describe('Payroll and Private Classes Integration Tests (Phase 11)', () => {
       const notifs = await notifRes.json();
       const finalNotif = notifs.data.find((n: any) => n.type === 'PAYROLL_FINALIZED');
       assert.ok(finalNotif, 'Expected PAYROLL_FINALIZED notification for Teacher A');
+      // Financial privacy: neutral text, no amount, and no link to the (supervisor-only) payroll
+      assert.strictEqual(finalNotif.referenceEntityType, null);
+      assert.strictEqual(finalNotif.referenceEntityId, null);
+      assert.ok(!/\d/.test(finalNotif.message), `notification text must not contain amounts: ${finalNotif.message}`);
     });
 
     it('Finalized payroll blocks modifications (PAYROLL_ALREADY_FINALIZED)', async () => {

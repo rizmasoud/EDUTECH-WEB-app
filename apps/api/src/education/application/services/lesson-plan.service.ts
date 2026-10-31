@@ -5,7 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import {
   classes,
@@ -23,6 +23,7 @@ import {
   syllabusItems,
 } from '../../../infrastructure/database/schema/academics.schema';
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
+import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
 import {
   CreateLessonPlanSchema,
@@ -93,7 +94,9 @@ export class LessonPlanService {
           and(
             eq(classSessions.classId, classId),
             eq(substitutionRequests.approvedTeacherId, user.teacherId),
-            eq(substitutionRequests.status, 'APPROVED'),
+            // APPROVED, or COMPLETED once the session finished (completing a session moves its APPROVED request
+            // to COMPLETED); REQUESTED/RESPONDED/REJECTED/CANCELLED never grant access.
+            inArray(substitutionRequests.status, [...SUBSTITUTE_EFFECTIVE_STATUSES]),
           ),
         )
         .limit(1);

@@ -1198,8 +1198,14 @@ export interface RecordStudentAttendanceDto {
  * A teacher's own attendance counts, from teacher_attendance_records (never student attendance).
  * Counts only: no payroll amounts, rates or other financial values.
  */
+export type TeacherAttendanceSummaryScope = 'ALL' | 'CURRENT' | 'TERM';
+
 export interface TeacherAttendanceSummaryDto {
   teacherId: string;
+  /** ALL = every term; CURRENT = classes of the ACTIVE term; TERM = one specified term. */
+  scope: TeacherAttendanceSummaryScope;
+  /** The term counted (TERM, or CURRENT when exactly one term is ACTIVE); null otherwise. */
+  academicTermId: string | null;
   sessionsAttended: number; // status PRESENT
   sessionsAbsent: number; // status ABSENT
   sessionsExcused: number; // status EXCUSED

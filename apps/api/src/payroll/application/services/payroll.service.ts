@@ -522,8 +522,7 @@ export class PayrollService {
           title: 'Payroll Calculated',
           // No amounts: teachers must not receive any financial value.
           message: 'Your payroll for the current academic term has been calculated.',
-          referenceEntityType: 'PAYROLL',
-          referenceEntityId: payroll.id,
+          // No payroll reference: teachers cannot open payroll endpoints, so a link would be a dead end.
         },
         true,
       );
@@ -650,8 +649,7 @@ export class PayrollService {
           type: 'PAYROLL_FINALIZED',
           title: 'Payroll Finalized',
           message: 'Your payroll for the academic term has been finalized.',
-          referenceEntityType: 'PAYROLL',
-          referenceEntityId: payroll.id,
+          // No payroll reference: teachers cannot open payroll endpoints, so a link would be a dead end.
         },
         true,
       );
