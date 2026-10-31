@@ -82,8 +82,9 @@ export class PayrollService {
   private mapToDetailDto(
     payroll: any,
     items: any[] = [],
-    teacher?: any,
-    term?: any,
+    teacher: any,
+    term: any,
+    includeBaseRate: boolean,
   ): PayrollDetailDto {
     return {
       id: payroll.id,
@@ -99,7 +100,8 @@ export class PayrollService {
             id: teacher.id,
             firstName: teacher.firstName,
             lastName: teacher.lastName,
-            baseRate: teacher.baseRate ? String(teacher.baseRate) : null,
+            // The teacher's pay rate is shown to supervisors only (MVP scope decision D2).
+            baseRate: includeBaseRate && teacher.baseRate ? String(teacher.baseRate) : null,
             accountId: teacher.accountId,
           }
         : undefined,
@@ -827,7 +829,7 @@ export class PayrollService {
       .where(eq(payrollItems.payrollId, payroll.id))
       .orderBy(asc(payrollItems.createdAt));
 
-    return this.mapToDetailDto(payroll, items, teacher, term);
+    return this.mapToDetailDto(payroll, items, teacher, term, user.roles.includes('SUPERVISOR'));
   }
 
   /**

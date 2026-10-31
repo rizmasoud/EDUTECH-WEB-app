@@ -206,7 +206,9 @@ describe('Global AuthGuard (HTTP)', () => {
     assert.equal((await post()).status, 401);
     assert.equal((await post(teacher)).status, 403);
     assert.equal((await post(supervisor)).status, 201);
-    assert.equal((await get(`${baseUrl}/students`, teacher)).status, 200, 'GET /students has no role restriction');
+    // The role guard places no role restriction on this GET: what a teacher may actually read is limited by the
+    // service (own classes only), see teacher-data-access.spec.ts. The service is stubbed in this file.
+    assert.equal((await get(`${baseUrl}/students`, teacher)).status, 200, 'GET /students is open to both roles at the guard level');
     assert.equal((await get(`${baseUrl}/students`)).status, 401);
   });
 

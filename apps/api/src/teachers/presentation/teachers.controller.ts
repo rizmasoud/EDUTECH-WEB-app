@@ -38,13 +38,19 @@ export class TeachersController {
   ) {}
 
   @Get()
-  async findAll(@Query() query: FindTeachersFilter): Promise<PaginatedResult<TeacherResponseDto>> {
-    return this.teachersService.findAll(query);
+  async findAll(
+    @Query() query: FindTeachersFilter,
+    @CurrentUser() user: AuthUser,
+  ): Promise<PaginatedResult<TeacherResponseDto>> {
+    return this.teachersService.findAll(query, user);
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<TeacherResponseDto> {
-    return this.teachersService.findById(id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<TeacherResponseDto> {
+    return this.teachersService.findById(id, user);
   }
 
   @Post()

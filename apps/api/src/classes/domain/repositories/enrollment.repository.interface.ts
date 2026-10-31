@@ -15,6 +15,8 @@ export interface IEnrollmentRepository {
     filter?: FindEnrollmentsFilter,
   ): Promise<{ items: Enrollment[]; total: number }>;
   findAllByStudent(studentId: string): Promise<Enrollment[]>;
+  /** Only the student's enrollments in classes taught by `teacherId` (any status). */
+  findAllByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]>;
   createWithCapacityCheck(
     data: CreateEnrollmentData,
     maxCapacity: number,

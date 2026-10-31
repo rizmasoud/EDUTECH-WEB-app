@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, count } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
-import { enrollments } from '../../infrastructure/database/schema/classes.schema';
+import { enrollments, classes } from '../../infrastructure/database/schema/classes.schema';
 import { Enrollment } from '../domain/entities/enrollment.entity';
 import type {
   IEnrollmentRepository,
@@ -84,6 +84,19 @@ export class DrizzleEnrollmentRepository implements IEnrollmentRepository {
       items: rows.map((r: typeof enrollments.$inferSelect) => this.mapRowToEntity(r)),
       total,
     };
+  }
+
+  async findAllByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]> {
+    const rows = await this.db
+      .select({ enrollment: enrollments })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .where(and(eq(enrollments.studentId, studentId), eq(classes.teacherId, teacherId)))
+      .orderBy(desc(enrollments.joinedAt));
+
+    return rows.map((r: { enrollment: typeof enrollments.$inferSelect }) =>
+      this.mapRowToEntity(r.enrollment),
+    );
   }
 
   async findAllByStudent(studentId: string): Promise<Enrollment[]> {

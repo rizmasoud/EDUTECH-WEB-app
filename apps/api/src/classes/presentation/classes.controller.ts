@@ -14,6 +14,7 @@ import {
 import { AuthGuard } from '../../auth/presentation/guards/auth.guard';
 import { RolesGuard } from '../../auth/presentation/guards/roles.guard';
 import { Roles } from '../../auth/presentation/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/presentation/decorators/current-user.decorator';
 import { ClassesService } from '../application/services/classes.service';
 import { EnrollmentsService } from '../application/services/enrollments.service';
 import type {
@@ -27,7 +28,7 @@ import type {
   QueryEnrollmentsInput,
   EnrollmentResponseDto,
 } from '../application/dto/enrollment.dto';
-import type { PaginatedResult } from '@edutech/shared';
+import type { PaginatedResult, AuthUser } from '@edutech/shared';
 
 @Controller('classes')
 @UseGuards(AuthGuard, RolesGuard)
@@ -40,13 +41,19 @@ export class ClassesController {
   ) {}
 
   @Get()
-  async findAll(@Query() query: QueryClassesInput): Promise<PaginatedResult<ClassResponseDto>> {
-    return this.classesService.findAll(query);
+  async findAll(
+    @Query() query: QueryClassesInput,
+    @CurrentUser() user: AuthUser,
+  ): Promise<PaginatedResult<ClassResponseDto>> {
+    return this.classesService.findAll(query, user);
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<ClassResponseDto> {
-    return this.classesService.findById(id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ClassResponseDto> {
+    return this.classesService.findById(id, user);
   }
 
   @Post()
@@ -90,8 +97,9 @@ export class ClassesController {
   async findEnrollments(
     @Param('id') id: string,
     @Query() query: QueryEnrollmentsInput,
+    @CurrentUser() user: AuthUser,
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
-    return this.enrollmentsService.findAllByClass(id, query);
+    return this.enrollmentsService.findAllByClass(id, query, user);
   }
 
   @Post(':id/enrollments')

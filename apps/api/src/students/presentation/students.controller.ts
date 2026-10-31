@@ -14,6 +14,7 @@ import {
 import { AuthGuard } from '../../auth/presentation/guards/auth.guard';
 import { RolesGuard } from '../../auth/presentation/guards/roles.guard';
 import { Roles } from '../../auth/presentation/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/presentation/decorators/current-user.decorator';
 import { StudentsService } from '../application/services/students.service';
 import type {
   CreateStudentDto,
@@ -22,6 +23,7 @@ import type {
   FindStudentsFilter,
   PaginatedResult,
   EnrollmentResponseDto,
+  AuthUser,
 } from '@edutech/shared';
 
 @Controller('students')
@@ -33,13 +35,19 @@ export class StudentsController {
   ) {}
 
   @Get()
-  async findAll(@Query() query: FindStudentsFilter): Promise<PaginatedResult<StudentResponseDto>> {
-    return this.studentsService.findAll(query);
+  async findAll(
+    @Query() query: FindStudentsFilter,
+    @CurrentUser() user: AuthUser,
+  ): Promise<PaginatedResult<StudentResponseDto>> {
+    return this.studentsService.findAll(query, user);
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<StudentResponseDto> {
-    return this.studentsService.findById(id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<StudentResponseDto> {
+    return this.studentsService.findById(id, user);
   }
 
   @Post()
@@ -59,7 +67,10 @@ export class StudentsController {
   }
 
   @Get(':id/enrollments')
-  async findEnrollments(@Param('id') id: string): Promise<EnrollmentResponseDto[]> {
-    return this.studentsService.findStudentEnrollments(id);
+  async findEnrollments(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<EnrollmentResponseDto[]> {
+    return this.studentsService.findStudentEnrollments(id, user);
   }
 }

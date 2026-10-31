@@ -1,13 +1,15 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, desc, and, ilike, count, or } from 'drizzle-orm';
+import { eq, desc, and, ilike, count, or, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { students } from '../../infrastructure/database/schema/students.schema';
+import { enrollments, classes } from '../../infrastructure/database/schema/classes.schema';
 import { Student } from '../domain/entities/student.entity';
 import type {
   IStudentRepository,
   CreateStudentData,
   UpdateStudentData,
+  StudentScope,
 } from '../domain/repositories/student.repository.interface';
 import type { FindStudentsFilter } from '@edutech/shared';
 
@@ -40,8 +42,40 @@ export class DrizzleStudentRepository implements IStudentRepository {
     return row ? this.mapRowToEntity(row) : null;
   }
 
-  async findAll(filter?: FindStudentsFilter): Promise<{ items: Student[]; total: number }> {
+  /** Ids of students with an ACTIVE enrollment in a class taught by the given teacher. */
+  private activeStudentIdsOfTeacher(teacherId: string) {
+    return this.db
+      .select({ id: enrollments.studentId })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .where(and(eq(classes.teacherId, teacherId), eq(enrollments.status, 'ACTIVE')));
+  }
+
+  async isActivelyEnrolledWithTeacher(studentId: string, teacherId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: enrollments.id })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .where(
+        and(
+          eq(enrollments.studentId, studentId),
+          eq(classes.teacherId, teacherId),
+          eq(enrollments.status, 'ACTIVE'),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async findAll(
+    filter?: FindStudentsFilter,
+    scope?: StudentScope,
+  ): Promise<{ items: Student[]; total: number }> {
     const conditions: SQL[] = [];
+
+    if (scope) {
+      conditions.push(inArray(students.id, this.activeStudentIdsOfTeacher(scope.teacherId)));
+    }
 
     if (filter?.isActive !== undefined) {
       conditions.push(eq(students.isActive, filter.isActive));

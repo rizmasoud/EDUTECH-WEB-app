@@ -25,6 +25,7 @@ import {
   type ClassResponseDto,
   type AuthUser,
 } from '@edutech/shared';
+import { isSupervisor } from '../../../auth/presentation/policies/teacher-data-scope';
 
 @Injectable()
 export class TeachersService {
@@ -37,13 +38,18 @@ export class TeachersService {
     private readonly teacherOwnershipPolicy: TeacherOwnershipPolicy,
   ) {}
 
-  private mapToDto(teacher: Teacher): TeacherResponseDto {
+  /**
+   * The pay rate is financial information: it is included only when `includeBaseRate` is true, which callers
+   * set only for supervisors. For a teacher the key is omitted entirely (not even null), for every teacher
+   * record including their own (MVP scope decision D2).
+   */
+  private mapToDto(teacher: Teacher, includeBaseRate: boolean): TeacherResponseDto {
     return {
       id: teacher.id,
       accountId: teacher.accountId,
       firstName: teacher.firstName,
       lastName: teacher.lastName,
-      baseRate: teacher.baseRate,
+      ...(includeBaseRate ? { baseRate: teacher.baseRate } : {}),
       isActive: teacher.isActive,
       createdAt: teacher.createdAt,
       updatedAt: teacher.updatedAt,
@@ -71,10 +77,14 @@ export class TeachersService {
     }
 
     const created = await this.teacherRepo.create(parseResult.data);
-    return this.mapToDto(created);
+    return this.mapToDto(created, true); // supervisor-only route
   }
 
-  async findAll(filter?: FindTeachersFilter): Promise<PaginatedResult<TeacherResponseDto>> {
+  async findAll(
+    filter: FindTeachersFilter | undefined,
+    user: AuthUser,
+  ): Promise<PaginatedResult<TeacherResponseDto>> {
+    const includeBaseRate = isSupervisor(user);
     const page = Math.max(1, Number(filter?.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(filter?.pageSize) || 20));
 
@@ -88,7 +98,7 @@ export class TeachersService {
     const totalPages = Math.ceil(result.total / pageSize) || 1;
 
     return {
-      items: result.items.map((t) => this.mapToDto(t)),
+      items: result.items.map((t) => this.mapToDto(t, includeBaseRate)),
       total: result.total,
       page,
       pageSize,
@@ -96,7 +106,7 @@ export class TeachersService {
     };
   }
 
-  async findById(id: string): Promise<TeacherResponseDto> {
+  async findById(id: string, user: AuthUser): Promise<TeacherResponseDto> {
     const teacher = await this.teacherRepo.findById(id);
     if (!teacher) {
       throw new NotFoundException({
@@ -105,7 +115,7 @@ export class TeachersService {
       });
     }
 
-    return this.mapToDto(teacher);
+    return this.mapToDto(teacher, isSupervisor(user));
   }
 
   async update(id: string, input: UpdateTeacherDto): Promise<TeacherResponseDto> {
@@ -126,7 +136,7 @@ export class TeachersService {
     }
 
     const updated = await this.teacherRepo.update(id, parseResult.data);
-    return this.mapToDto(updated);
+    return this.mapToDto(updated, true); // supervisor-only route
   }
 
   async findSkills(teacherId: string): Promise<TeacherSkillResponseDto[]> {

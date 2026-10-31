@@ -806,7 +806,8 @@ export interface TeacherResponseDto {
   accountId: string | null;
   firstName: string;
   lastName: string;
-  baseRate: string;
+  /** Pay rate. Present only for supervisors; never sent to teacher accounts (MVP scope decision D2). */
+  baseRate?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

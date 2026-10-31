@@ -16,6 +16,8 @@ import {
   type EnrollmentStatus,
   type PaginatedResult,
 } from '@edutech/shared';
+import type { AuthUser } from '@edutech/shared';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 import type {
   CreateEnrollmentInput,
   UpdateEnrollmentInput,
@@ -117,8 +119,16 @@ export class EnrollmentsService {
   async findAllByClass(
     classId: string,
     query: QueryEnrollmentsInput,
+    user: AuthUser,
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
+    const scope = resolveDataScope(user);
     const cls = await this.classRepo.findById(classId);
+
+    // Only a supervisor or the teacher of this very class may read its roster (same 403 whether the class is
+    // someone else's or does not exist).
+    if (scope.kind === 'NONE' || (scope.kind === 'TEACHER' && cls?.teacherId !== scope.teacherId)) {
+      throw forbiddenResource('You do not have permission to access this class');
+    }
     if (!cls) {
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
