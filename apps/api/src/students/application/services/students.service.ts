@@ -57,15 +57,15 @@ export class StudentsService {
   }
 
   /**
-   * A teacher may read a student only while that student has an ACTIVE enrollment in one of the teacher's own
-   * classes. Supervisors are unrestricted. Same 403 whether the student is someone else's or does not exist.
+   * A teacher may read a student only while that student currently has a class with the teacher in the
+   * current (ACTIVE) academic term (see currentTeachingCondition). Supervisors are unrestricted. Same 403 whether the student is someone else's or does not exist.
    */
   private async assertCanReadStudent(studentId: string, user: AuthUser): Promise<void> {
     const scope = resolveDataScope(user);
     if (scope.kind === 'ALL') return;
     if (
       scope.kind === 'NONE' ||
-      !(await this.studentRepo.isActivelyEnrolledWithTeacher(studentId, scope.teacherId))
+      !(await this.studentRepo.hasCurrentClassWithTeacher(studentId, scope.teacherId))
     ) {
       throw forbiddenResource('You do not have permission to access this student');
     }
@@ -149,11 +149,11 @@ export class StudentsService {
       });
     }
 
-    // A teacher sees only the student's enrollments in the teacher's own classes, never the student's
-    // enrollments in other teachers' classes (a student can be enrolled with several teachers).
+    // A teacher sees only the student's current enrollments in the teacher's own classes, never the student's
+    // enrollments in other teachers' classes or past ones (a student can study with several teachers).
     const enrollments =
       scope.kind === 'TEACHER'
-        ? await this.enrollmentRepo.findAllByStudentAndTeacher(studentId, scope.teacherId)
+        ? await this.enrollmentRepo.findCurrentByStudentAndTeacher(studentId, scope.teacherId)
         : await this.enrollmentRepo.findAllByStudent(studentId);
     return enrollments.map((e) => ({
       id: e.id,

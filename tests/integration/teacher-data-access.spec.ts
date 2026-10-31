@@ -24,7 +24,14 @@ import { teachers } from '../../apps/api/src/infrastructure/database/schema/teac
 import { students } from '../../apps/api/src/infrastructure/database/schema/students.schema';
 import { academicTerms, books } from '../../apps/api/src/infrastructure/database/schema/academics.schema';
 import { classes, enrollments } from '../../apps/api/src/infrastructure/database/schema/classes.schema';
-import { payrolls } from '../../apps/api/src/infrastructure/database/schema/payroll.schema';
+import { payrolls, payrollItems } from '../../apps/api/src/infrastructure/database/schema/payroll.schema';
+import { exams, examResults, promotions } from '../../apps/api/src/infrastructure/database/schema/education.schema';
+import { eq } from 'drizzle-orm';
+import { PromotionsController } from '../../apps/api/src/education/presentation/promotions.controller';
+import { PromotionService } from '../../apps/api/src/education/application/services/promotion.service';
+import { StudentPromotionsController } from '../../apps/api/src/education/presentation/student-promotions.controller';
+import { ExamsController } from '../../apps/api/src/education/presentation/exams.controller';
+import { ExamService } from '../../apps/api/src/education/application/services/exam.service';
 import { DRIZZLE_DB } from '../../apps/api/src/infrastructure/database/drizzle.provider';
 import { AuthService } from '../../apps/api/src/auth/application/auth.service';
 import { AuthGuard } from '../../apps/api/src/auth/presentation/guards/auth.guard';
@@ -64,13 +71,15 @@ import { HttpExceptionFilter } from '../../apps/api/src/shared/filters/http-exce
 let sharedDb: any;
 
 @Module({
-  controllers: [ClassesController, StudentsController, TeachersController, PayrollController, TeacherPayrollController],
+  controllers: [ClassesController, StudentsController, TeachersController, PayrollController, TeacherPayrollController, PromotionsController, StudentPromotionsController, ExamsController],
   providers: [
     ClassesService,
     EnrollmentsService,
     StudentsService,
     TeachersService,
     PayrollService,
+    PromotionService,
+    ExamService,
     PayrollPolicy,
     NotificationService,
     TeacherOwnershipPolicy,
@@ -112,6 +121,8 @@ describe('Teacher data access is enforced by the backend', () => {
   let studentUnenrolled: string;
   let payrollA: string;
   let payrollB: string;
+  let termId: string;
+  let bookId: string;
 
   const api = (path: string, token?: string) =>
     fetch(`${baseUrl}/api/v1${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -179,6 +190,8 @@ describe('Teacher data access is enforced by the backend', () => {
       .values({ name: 'English 1', level: 'A1', sequenceOrder: 1, sessionCount: 20, isTerminal: false, isActive: true })
       .returning();
 
+    termId = term.id;
+    bookId = book.id;
     const mkClass = async (teacherId: string, name: string) => {
       const [c] = await db
         .insert(classes)
@@ -408,6 +421,133 @@ describe('Teacher data access is enforced by the backend', () => {
       assert.deepEqual(ids((await json('/payrolls', teacherA)).body), [payrollA]);
       assert.equal((await json(`/teachers/${teacherBId}/payrolls`, teacherA)).status, 403);
       assert.equal((await json(`/teachers/${teacherAId}/payrolls`, teacherA)).status, 200);
+    });
+  });
+
+  describe('current-term visibility, financial items, exam and promotion ownership', () => {
+    const db = () => sharedDb;
+    const mkStudent = async (firstName: string) =>
+      (await db().insert(students).values({ firstName, lastName: 'Cur', isActive: true }).returning())[0].id as string;
+    const mkClass = async (teacherId: string, status: string, academicTermId: string = termId) =>
+      (
+        await db()
+          .insert(classes)
+          .values({ academicTermId, bookId, teacherId, classType: 'REGULAR', status, capacity: 12, name: `C-${status}` })
+          .returning()
+      )[0].id as string;
+    const enrollIn = (classId: string, studentId: string, status = 'ACTIVE') =>
+      db().insert(enrollments).values({ classId, studentId, status });
+    const visibleTo = async (token: string, studentId: string) => {
+      const list = await json('/students?pageSize=100', token);
+      const detail = await json(`/students/${studentId}`, token);
+      const enr = await json(`/students/${studentId}/enrollments`, token);
+      return { inList: list.body.items.some((s: any) => s.id === studentId), detail: detail.status, enr: enr.status };
+    };
+
+    it('students whose only class with the teacher is not ACTIVE-in-the-ACTIVE-term are not visible', async () => {
+      const closedTerm = (await db().insert(academicTerms).values({ name: 'Old', startDate: '2025-01-01', endDate: '2025-06-01', status: 'CLOSED' }).returning())[0].id;
+      const plannedTerm = (await db().insert(academicTerms).values({ name: 'Next', startDate: '2027-06-01', endDate: '2027-09-01', status: 'PLANNED' }).returning())[0].id;
+      const cases: Array<[string, string, string]> = [
+        ['completedClass', 'COMPLETED', termId],
+        ['cancelledClass', 'CANCELLED', termId],
+        ['draftClass', 'DRAFT', termId],
+        ['closedTermClass', 'ACTIVE', closedTerm],
+        ['plannedTermClass', 'ACTIVE', plannedTerm],
+      ];
+      for (const [label, status, term] of cases) {
+        const sid = await mkStudent(label);
+        await enrollIn(await mkClass(teacherAId, status, term), sid);
+        assert.deepEqual(await visibleTo(teacherA, sid), { inList: false, detail: 403, enr: 403 }, label);
+        assert.equal((await json(`/students/${sid}`, supervisor)).status, 200, `${label} supervisor`);
+      }
+    });
+
+    it('a student who changes class stops being visible to the old teacher and becomes visible to the new one', async () => {
+      const sid = await mkStudent('Mover');
+      await enrollIn(classA1, sid);
+      assert.deepEqual(await visibleTo(teacherA, sid), { inList: true, detail: 200, enr: 200 });
+      assert.equal((await visibleTo(teacherB, sid)).detail, 403);
+
+      await db().update(enrollments).set({ status: 'WITHDRAWN' }).where(eq(enrollments.studentId, sid));
+      await enrollIn(classB1, sid);
+
+      assert.deepEqual(await visibleTo(teacherA, sid), { inList: false, detail: 403, enr: 403 });
+      assert.deepEqual(await visibleTo(teacherB, sid), { inList: true, detail: 200, enr: 200 });
+      // history is kept for the supervisor
+      const sup = await json(`/students/${sid}/enrollments`, supervisor);
+      assert.equal(sup.body.length, 2);
+    });
+
+    it('visibility ends when the class is completed or the term is closed', async () => {
+      const t = (await db().insert(academicTerms).values({ name: 'Spring', startDate: '2026-03-01', endDate: '2026-06-01', status: 'ACTIVE' }).returning())[0].id;
+      const c = await mkClass(teacherAId, 'ACTIVE', t);
+      const sid = await mkStudent('TermEnds');
+      await enrollIn(c, sid);
+      assert.equal((await visibleTo(teacherA, sid)).detail, 200);
+      assert.equal((await json(`/classes/${c}/enrollments`, teacherA)).body.items.length, 1);
+
+      await db().update(academicTerms).set({ status: 'CLOSED' }).where(eq(academicTerms.id, t));
+      assert.deepEqual(await visibleTo(teacherA, sid), { inList: false, detail: 403, enr: 403 });
+      assert.deepEqual((await json(`/classes/${c}/enrollments`, teacherA)).body.items, []);
+      assert.equal((await json(`/classes/${c}/enrollments`, supervisor)).body.items.length, 1);
+
+      const c2 = await mkClass(teacherAId, 'ACTIVE');
+      const sid2 = await mkStudent('ClassEnds');
+      await enrollIn(c2, sid2);
+      assert.equal((await visibleTo(teacherA, sid2)).detail, 200);
+      await db().update(classes).set({ status: 'COMPLETED' }).where(eq(classes.id, c2));
+      assert.equal((await visibleTo(teacherA, sid2)).detail, 403);
+    });
+
+    it('a teacher roster lists only ACTIVE enrollments of a current class; a supervisor sees all', async () => {
+      const a = await json(`/classes/${classA1}/enrollments?pageSize=100`, teacherA);
+      assert.ok(a.body.items.every((e: any) => e.status === 'ACTIVE'));
+      assert.ok(!a.body.items.some((e: any) => e.studentId === studentWithdrawnFromA));
+      const sup = await json(`/classes/${classA1}/enrollments?pageSize=100`, supervisor);
+      assert.ok(sup.body.items.some((e: any) => e.studentId === studentWithdrawnFromA));
+    });
+
+    it("payroll items never carry the pay rate for a teacher, but do for a supervisor", async () => {
+      await db().insert(payrollItems).values({ payrollId: payrollA, type: 'SESSION', quantity: '2.00', rate: '200.00', amount: '400.00' });
+      for (const path of [`/payrolls/${payrollA}/items`, `/payrolls/${payrollA}`]) {
+        const t = await json(path, teacherA);
+        assert.equal(t.status, 200, path);
+        assert.ok(!t.text.includes('"rate"') && !t.text.includes('"baseRate"'), `${path} leaks a rate key`);
+        assert.ok(!t.text.includes('200.00'), `${path} leaks the rate value`);
+        assert.ok(t.text.includes('400.00'), `${path} should still show the amount`);
+        const s = await json(path, supervisor);
+        assert.ok(s.text.includes('"rate":"200.00"'), `${path} supervisor must see the rate`);
+      }
+      assert.equal((await json(`/payrolls/${payrollA}/items`, teacherB)).status, 403);
+    });
+
+    it('promotions and exams are limited to the teacher\'s own classes', async () => {
+      const mk = async (classId: string, studentId: string) => {
+        const [ex] = await db().insert(exams).values({ classId, examDate: '2026-11-01', type: 'FINAL' }).returning();
+        const [er] = await db().insert(examResults).values({ examId: ex.id, studentId, score: '90.00' }).returning();
+        const [pr] = await db()
+          .insert(promotions)
+          .values({ studentId, fromBookId: bookId, examResultId: er.id, status: 'PENDING_DECISION' })
+          .returning();
+        return { exam: ex.id as string, promotion: pr.id as string };
+      };
+      const a = await mk(classA1, studentOnlyA);
+      const b = await mk(classB1, studentOnlyB);
+
+      const list = await json('/promotions', teacherA);
+      assert.equal(list.status, 200);
+      assert.deepEqual(ids(list.body), [a.promotion]);
+      assert.equal((await json(`/promotions/${a.promotion}`, teacherA)).status, 200);
+      assert.equal((await json(`/promotions/${b.promotion}`, teacherA)).status, 403);
+      assert.equal((await json(`/promotions?studentId=${studentOnlyB}`, teacherA)).body.length, 0);
+      assert.equal((await json(`/students/${studentOnlyB}/promotions`, teacherA)).body.length, 0);
+      assert.equal((await json('/promotions', supervisor)).body.length >= 2, true);
+      assert.equal((await json(`/promotions/${b.promotion}`, supervisor)).status, 200);
+
+      assert.equal((await json(`/exams/${a.exam}`, teacherA)).status, 200);
+      assert.equal((await json(`/exams/${b.exam}`, teacherA)).status, 403);
+      assert.equal((await json(`/exams/${b.exam}/results`, teacherA)).status, 403);
+      assert.equal((await json(`/exams/${b.exam}`, supervisor)).status, 200);
     });
   });
 });

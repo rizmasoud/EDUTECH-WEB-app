@@ -1709,7 +1709,8 @@ export interface PayrollItemDto {
   payrollId: string;
   type: PayrollItemType;
   quantity: string;
-  rate: string;
+  /** Per-unit rate. Present only for supervisors; never sent to teacher accounts (derived from the pay rate). */
+  rate?: string;
   amount: string;
   referenceId: string | null;
   description: string | null;

@@ -139,11 +139,16 @@ export class EnrollmentsService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
 
-    const result = await this.enrollmentRepo.findAllByClass(classId, {
-      status: query.status,
-      page,
-      pageSize,
-    });
+    // A teacher's roster covers current students only (ACTIVE class in the ACTIVE term, ACTIVE enrollments);
+    // supervisors see every enrollment of the class.
+    const result =
+      scope.kind === 'TEACHER'
+        ? await this.enrollmentRepo.findCurrentByClassAndTeacher(classId, scope.teacherId, { page, pageSize })
+        : await this.enrollmentRepo.findAllByClass(classId, {
+            status: query.status,
+            page,
+            pageSize,
+          });
 
     const totalPages = Math.ceil(result.total / pageSize) || 1;
 

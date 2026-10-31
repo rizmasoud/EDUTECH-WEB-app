@@ -77,6 +77,25 @@ export class PayrollService {
   }
 
   /**
+   * Maps a stored payroll item to its DTO. The per-unit `rate` is derived from the teacher's pay rate, so it is
+   * included for supervisors only (product-owner decision: only supervisors see pay rates). A teacher still sees
+   * their own quantities and amounts.
+   */
+  private mapItemToDto(item: any, includeRate: boolean): PayrollItemDto {
+    return {
+      id: item.id,
+      payrollId: item.payrollId,
+      type: item.type,
+      quantity: String(item.quantity),
+      ...(includeRate ? { rate: String(item.rate) } : {}),
+      amount: String(item.amount),
+      referenceId: item.referenceId,
+      description: item.description,
+      createdAt: item.createdAt,
+    };
+  }
+
+  /**
    * Helper to map database payroll record and relations to PayrollDetailDto
    */
   private mapToDetailDto(
@@ -100,8 +119,9 @@ export class PayrollService {
             id: teacher.id,
             firstName: teacher.firstName,
             lastName: teacher.lastName,
-            // The teacher's pay rate is shown to supervisors only (MVP scope decision D2).
-            baseRate: includeBaseRate && teacher.baseRate ? String(teacher.baseRate) : null,
+            // The teacher's pay rate is shown to supervisors only (MVP scope decision D2): the key is absent
+            // for everyone else, not null.
+            ...(includeBaseRate ? { baseRate: teacher.baseRate ? String(teacher.baseRate) : null } : {}),
             accountId: teacher.accountId,
           }
         : undefined,
@@ -113,17 +133,7 @@ export class PayrollService {
             endDate: term.endDate,
           }
         : undefined,
-      items: items.map((item) => ({
-        id: item.id,
-        payrollId: item.payrollId,
-        type: item.type,
-        quantity: String(item.quantity),
-        rate: String(item.rate),
-        amount: String(item.amount),
-        referenceId: item.referenceId,
-        description: item.description,
-        createdAt: item.createdAt,
-      })),
+      items: items.map((item) => this.mapItemToDto(item, includeBaseRate)),
     };
   }
 
@@ -858,17 +868,8 @@ export class PayrollService {
       .where(eq(payrollItems.payrollId, payroll.id))
       .orderBy(asc(payrollItems.createdAt));
 
-    return items.map((item: any) => ({
-      id: item.id,
-      payrollId: item.payrollId,
-      type: item.type,
-      quantity: String(item.quantity),
-      rate: String(item.rate),
-      amount: String(item.amount),
-      referenceId: item.referenceId,
-      description: item.description,
-      createdAt: item.createdAt,
-    }));
+    const includeRate = user.roles.includes('SUPERVISOR');
+    return items.map((item: any) => this.mapItemToDto(item, includeRate));
   }
 
   /**

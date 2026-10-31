@@ -4,6 +4,8 @@ import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { students } from '../../infrastructure/database/schema/students.schema';
 import { enrollments, classes } from '../../infrastructure/database/schema/classes.schema';
+import { academicTerms } from '../../infrastructure/database/schema/academics.schema';
+import { currentTeachingCondition } from '../../classes/infrastructure/teacher-current-scope';
 import { Student } from '../domain/entities/student.entity';
 import type {
   IStudentRepository,
@@ -42,27 +44,23 @@ export class DrizzleStudentRepository implements IStudentRepository {
     return row ? this.mapRowToEntity(row) : null;
   }
 
-  /** Ids of students with an ACTIVE enrollment in a class taught by the given teacher. */
-  private activeStudentIdsOfTeacher(teacherId: string) {
+  /** Ids of the students the teacher currently teaches (see currentTeachingCondition). */
+  private currentStudentIdsOfTeacher(teacherId: string) {
     return this.db
       .select({ id: enrollments.studentId })
       .from(enrollments)
       .innerJoin(classes, eq(enrollments.classId, classes.id))
-      .where(and(eq(classes.teacherId, teacherId), eq(enrollments.status, 'ACTIVE')));
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(currentTeachingCondition(teacherId));
   }
 
-  async isActivelyEnrolledWithTeacher(studentId: string, teacherId: string): Promise<boolean> {
+  async hasCurrentClassWithTeacher(studentId: string, teacherId: string): Promise<boolean> {
     const [row] = await this.db
       .select({ id: enrollments.id })
       .from(enrollments)
       .innerJoin(classes, eq(enrollments.classId, classes.id))
-      .where(
-        and(
-          eq(enrollments.studentId, studentId),
-          eq(classes.teacherId, teacherId),
-          eq(enrollments.status, 'ACTIVE'),
-        ),
-      )
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(and(eq(enrollments.studentId, studentId), currentTeachingCondition(teacherId)))
       .limit(1);
     return Boolean(row);
   }
@@ -74,7 +72,7 @@ export class DrizzleStudentRepository implements IStudentRepository {
     const conditions: SQL[] = [];
 
     if (scope) {
-      conditions.push(inArray(students.id, this.activeStudentIdsOfTeacher(scope.teacherId)));
+      conditions.push(inArray(students.id, this.currentStudentIdsOfTeacher(scope.teacherId)));
     }
 
     if (filter?.isActive !== undefined) {
