@@ -1,13 +1,17 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, desc, and, ilike, count, or } from 'drizzle-orm';
+import { eq, desc, and, ilike, count, or, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
 import { students } from '../../infrastructure/database/schema/students.schema';
+import { enrollments, classes } from '../../infrastructure/database/schema/classes.schema';
+import { academicTerms } from '../../infrastructure/database/schema/academics.schema';
+import { currentTeachingCondition } from '../../classes/infrastructure/teacher-current-scope';
 import { Student } from '../domain/entities/student.entity';
 import type {
   IStudentRepository,
   CreateStudentData,
   UpdateStudentData,
+  StudentScope,
 } from '../domain/repositories/student.repository.interface';
 import type { FindStudentsFilter } from '@edutech/shared';
 
@@ -40,8 +44,36 @@ export class DrizzleStudentRepository implements IStudentRepository {
     return row ? this.mapRowToEntity(row) : null;
   }
 
-  async findAll(filter?: FindStudentsFilter): Promise<{ items: Student[]; total: number }> {
+  /** Ids of the students the teacher currently teaches (see currentTeachingCondition). */
+  private currentStudentIdsOfTeacher(teacherId: string) {
+    return this.db
+      .select({ id: enrollments.studentId })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(currentTeachingCondition(teacherId));
+  }
+
+  async hasCurrentClassWithTeacher(studentId: string, teacherId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: enrollments.id })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(and(eq(enrollments.studentId, studentId), currentTeachingCondition(teacherId)))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async findAll(
+    filter?: FindStudentsFilter,
+    scope?: StudentScope,
+  ): Promise<{ items: Student[]; total: number }> {
     const conditions: SQL[] = [];
+
+    if (scope) {
+      conditions.push(inArray(students.id, this.currentStudentIdsOfTeacher(scope.teacherId)));
+    }
 
     if (filter?.isActive !== undefined) {
       conditions.push(eq(students.isActive, filter.isActive));

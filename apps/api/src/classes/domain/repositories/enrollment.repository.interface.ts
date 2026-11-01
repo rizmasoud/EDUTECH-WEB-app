@@ -15,6 +15,14 @@ export interface IEnrollmentRepository {
     filter?: FindEnrollmentsFilter,
   ): Promise<{ items: Enrollment[]; total: number }>;
   findAllByStudent(studentId: string): Promise<Enrollment[]>;
+  /** Roster of one class for its teacher: empty unless the class is ACTIVE in the ACTIVE term; ACTIVE enrollments only. */
+  findCurrentByClassAndTeacher(
+    classId: string,
+    teacherId: string,
+    filter?: FindEnrollmentsFilter,
+  ): Promise<{ items: Enrollment[]; total: number }>;
+  /** Only the student's current enrollments in `teacherId`'s classes (ACTIVE class, ACTIVE term, ACTIVE enrollment). */
+  findCurrentByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]>;
   createWithCapacityCheck(
     data: CreateEnrollmentData,
     maxCapacity: number,

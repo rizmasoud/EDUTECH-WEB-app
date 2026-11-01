@@ -2,7 +2,9 @@ import { Injectable, Inject } from '@nestjs/common';
 import { eq, desc, and, count } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../infrastructure/database/drizzle.provider';
-import { enrollments } from '../../infrastructure/database/schema/classes.schema';
+import { enrollments, classes } from '../../infrastructure/database/schema/classes.schema';
+import { academicTerms } from '../../infrastructure/database/schema/academics.schema';
+import { currentTeachingCondition } from './teacher-current-scope';
 import { Enrollment } from '../domain/entities/enrollment.entity';
 import type {
   IEnrollmentRepository,
@@ -84,6 +86,55 @@ export class DrizzleEnrollmentRepository implements IEnrollmentRepository {
       items: rows.map((r: typeof enrollments.$inferSelect) => this.mapRowToEntity(r)),
       total,
     };
+  }
+
+  /** A teacher's roster for one of their classes: only while the class is current (see currentTeachingCondition). */
+  async findCurrentByClassAndTeacher(
+    classId: string,
+    teacherId: string,
+    filter?: FindEnrollmentsFilter,
+  ): Promise<{ items: Enrollment[]; total: number }> {
+    const whereClause = and(eq(enrollments.classId, classId), currentTeachingCondition(teacherId));
+    const page = filter?.page || 1;
+    const pageSize = filter?.pageSize || 20;
+
+    const [countResult] = await this.db
+      .select({ val: count() })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(whereClause);
+
+    const rows = await this.db
+      .select({ enrollment: enrollments })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(whereClause)
+      .orderBy(desc(enrollments.joinedAt))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
+    return {
+      items: rows.map((r: { enrollment: typeof enrollments.$inferSelect }) =>
+        this.mapRowToEntity(r.enrollment),
+      ),
+      total: Number(countResult?.val || 0),
+    };
+  }
+
+  async findCurrentByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]> {
+    const rows = await this.db
+      .select({ enrollment: enrollments })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(and(eq(enrollments.studentId, studentId), currentTeachingCondition(teacherId)))
+      .orderBy(desc(enrollments.joinedAt));
+
+    return rows.map((r: { enrollment: typeof enrollments.$inferSelect }) =>
+      this.mapRowToEntity(r.enrollment),
+    );
   }
 
   async findAllByStudent(studentId: string): Promise<Enrollment[]> {

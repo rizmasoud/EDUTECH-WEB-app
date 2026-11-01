@@ -96,4 +96,12 @@ describe('route access policy', () => {
     assert.deepEqual(roles('GET /sessions'), ['SUPERVISOR', 'TEACHER']);
     assert.deepEqual(roles('GET /students'), []);
   });
+
+  it('every payroll read is supervisor-only (financial privacy)', () => {
+    const roles = (route: string) => routes.find((r) => r.route === route)?.roles;
+    for (const route of ['GET /payrolls', 'GET /payrolls/:id', 'GET /payrolls/:id/items', 'GET /teachers/:id/payrolls']) {
+      assert.deepEqual(roles(route), ['SUPERVISOR'], route);
+    }
+    assert.deepEqual(roles('GET /teachers/:id/attendance-summary'), ['SUPERVISOR', 'TEACHER']);
+  });
 });

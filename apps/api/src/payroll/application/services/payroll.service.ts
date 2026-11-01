@@ -77,13 +77,33 @@ export class PayrollService {
   }
 
   /**
+   * Maps a stored payroll item to its DTO. The per-unit `rate` is derived from the teacher's pay rate, so it is
+   * included for supervisors only (product-owner decision: only supervisors see pay rates). A teacher still sees
+   * their own quantities and amounts.
+   */
+  private mapItemToDto(item: any, includeRate: boolean): PayrollItemDto {
+    return {
+      id: item.id,
+      payrollId: item.payrollId,
+      type: item.type,
+      quantity: String(item.quantity),
+      ...(includeRate ? { rate: String(item.rate) } : {}),
+      amount: String(item.amount),
+      referenceId: item.referenceId,
+      description: item.description,
+      createdAt: item.createdAt,
+    };
+  }
+
+  /**
    * Helper to map database payroll record and relations to PayrollDetailDto
    */
   private mapToDetailDto(
     payroll: any,
     items: any[] = [],
-    teacher?: any,
-    term?: any,
+    teacher: any,
+    term: any,
+    includeBaseRate: boolean,
   ): PayrollDetailDto {
     return {
       id: payroll.id,
@@ -99,7 +119,9 @@ export class PayrollService {
             id: teacher.id,
             firstName: teacher.firstName,
             lastName: teacher.lastName,
-            baseRate: teacher.baseRate ? String(teacher.baseRate) : null,
+            // The teacher's pay rate is shown to supervisors only (MVP scope decision D2): the key is absent
+            // for everyone else, not null.
+            ...(includeBaseRate ? { baseRate: teacher.baseRate ? String(teacher.baseRate) : null } : {}),
             accountId: teacher.accountId,
           }
         : undefined,
@@ -111,17 +133,7 @@ export class PayrollService {
             endDate: term.endDate,
           }
         : undefined,
-      items: items.map((item) => ({
-        id: item.id,
-        payrollId: item.payrollId,
-        type: item.type,
-        quantity: String(item.quantity),
-        rate: String(item.rate),
-        amount: String(item.amount),
-        referenceId: item.referenceId,
-        description: item.description,
-        createdAt: item.createdAt,
-      })),
+      items: items.map((item) => this.mapItemToDto(item, includeBaseRate)),
     };
   }
 
@@ -508,9 +520,9 @@ export class PayrollService {
           recipientAccountId: teacher.accountId,
           type: 'PAYROLL_READY',
           title: 'Payroll Calculated',
-          message: `Your payroll for the current academic term has been calculated (Total: ${totalAmount}).`,
-          referenceEntityType: 'PAYROLL',
-          referenceEntityId: payroll.id,
+          // No amounts: teachers must not receive any financial value.
+          message: 'Your payroll for the current academic term has been calculated.',
+          // No payroll reference: teachers cannot open payroll endpoints, so a link would be a dead end.
         },
         true,
       );
@@ -636,9 +648,8 @@ export class PayrollService {
           recipientAccountId: teacher.accountId,
           type: 'PAYROLL_FINALIZED',
           title: 'Payroll Finalized',
-          message: `Your payroll of ${payroll.totalAmount} has been finalized.`,
-          referenceEntityType: 'PAYROLL',
-          referenceEntityId: payroll.id,
+          message: 'Your payroll for the academic term has been finalized.',
+          // No payroll reference: teachers cannot open payroll endpoints, so a link would be a dead end.
         },
         true,
       );
@@ -747,19 +758,12 @@ export class PayrollService {
    * Query list of payrolls with filters
    */
   async findAll(filter: QueryPayrollsDto, user: AuthUser): Promise<PayrollDto[]> {
-    const isSupervisor = user.roles.includes('SUPERVISOR');
+    // Payroll data is financial: supervisors only (teachers never see any payroll value, their own included).
+    this.assertSupervisor(user);
 
     const conditions: SQL[] = [];
 
-    if (!isSupervisor) {
-      if (!user.teacherId) {
-        throw new ForbiddenException({
-          code: 'FORBIDDEN_RESOURCE',
-          message: 'Teacher account is not associated with a teacher record',
-        });
-      }
-      conditions.push(eq(payrolls.teacherId, user.teacherId));
-    } else if (filter.teacherId) {
+    if (filter.teacherId) {
       conditions.push(eq(payrolls.teacherId, filter.teacherId));
     }
 
@@ -794,6 +798,7 @@ export class PayrollService {
    * Get detailed payroll including itemized breakdown
    */
   async findById(payrollId: string, user: AuthUser): Promise<PayrollDetailDto> {
+    this.assertSupervisor(user);
     const [payroll] = await this.db
       .select()
       .from(payrolls)
@@ -827,7 +832,7 @@ export class PayrollService {
       .where(eq(payrollItems.payrollId, payroll.id))
       .orderBy(asc(payrollItems.createdAt));
 
-    return this.mapToDetailDto(payroll, items, teacher, term);
+    return this.mapToDetailDto(payroll, items, teacher, term, user.roles.includes('SUPERVISOR'));
   }
 
   /**
@@ -835,6 +840,7 @@ export class PayrollService {
    * Get itemized breakdown for a payroll
    */
   async findItems(payrollId: string, user: AuthUser): Promise<PayrollItemDto[]> {
+    this.assertSupervisor(user);
     const [payroll] = await this.db
       .select()
       .from(payrolls)
@@ -856,17 +862,8 @@ export class PayrollService {
       .where(eq(payrollItems.payrollId, payroll.id))
       .orderBy(asc(payrollItems.createdAt));
 
-    return items.map((item: any) => ({
-      id: item.id,
-      payrollId: item.payrollId,
-      type: item.type,
-      quantity: String(item.quantity),
-      rate: String(item.rate),
-      amount: String(item.amount),
-      referenceId: item.referenceId,
-      description: item.description,
-      createdAt: item.createdAt,
-    }));
+    const includeRate = user.roles.includes('SUPERVISOR');
+    return items.map((item: any) => this.mapItemToDto(item, includeRate));
   }
 
   /**
@@ -874,15 +871,7 @@ export class PayrollService {
    * Get all payrolls for a specific teacher
    */
   async findTeacherPayrolls(teacherId: string, user: AuthUser): Promise<PayrollDto[]> {
-    const isSupervisor = user.roles.includes('SUPERVISOR');
-    const isOwner = user.teacherId === teacherId;
-
-    if (!isSupervisor && !isOwner) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN_RESOURCE',
-        message: 'You can only view your own payroll records',
-      });
-    }
+    this.assertSupervisor(user);
 
     const results = await this.db
       .select()

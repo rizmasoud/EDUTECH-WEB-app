@@ -98,6 +98,42 @@ export class NotificationService {
   }
 
   /**
+   * The only place a stored notification becomes an API response for its reader.
+   *
+   * Teachers get no financial detail and no payroll link: payroll endpoints are supervisor-only, so a payroll
+   * notification for anyone else carries neutral text and no reference to the payroll. This also covers legacy
+   * rows written before amounts were removed from the text (they may contain a total).
+   */
+  private toDto(row: any, user: AuthUser): NotificationDto {
+    const isSupervisor = user.roles.includes('SUPERVISOR');
+    let message: string = row.message;
+    let referenceEntityType: string | null = row.referenceEntityType;
+    let referenceEntityId: string | null = row.referenceEntityId;
+
+    if (!isSupervisor) {
+      if (row.type === 'PAYROLL_READY') message = 'Your payroll for the current academic term has been calculated.';
+      if (row.type === 'PAYROLL_FINALIZED') message = 'Your payroll for the academic term has been finalized.';
+      if (row.type === 'PAYROLL_READY' || row.type === 'PAYROLL_FINALIZED' || referenceEntityType === 'PAYROLL') {
+        referenceEntityType = null;
+        referenceEntityId = null;
+      }
+    }
+
+    return {
+      id: row.id,
+      recipientAccountId: row.recipientAccountId,
+      type: row.type,
+      title: row.title,
+      message,
+      referenceEntityType,
+      referenceEntityId,
+      isRead: row.isRead,
+      createdAt: row.createdAt,
+      readAt: row.readAt,
+    };
+  }
+
+  /**
    * GET /api/v1/notifications
    * Returns authenticated user's notifications and unread count.
    */
@@ -130,18 +166,7 @@ export class NotificationService {
 
     const unreadCount = unreadCountResult ? Number(unreadCountResult.count) : 0;
 
-    const data: NotificationDto[] = rows.map((r: any) => ({
-      id: r.id,
-      recipientAccountId: r.recipientAccountId,
-      type: r.type,
-      title: r.title,
-      message: r.message,
-      referenceEntityType: r.referenceEntityType,
-      referenceEntityId: r.referenceEntityId,
-      isRead: r.isRead,
-      createdAt: r.createdAt,
-      readAt: r.readAt,
-    }));
+    const data: NotificationDto[] = rows.map((r: any) => this.toDto(r, user));
 
     return {
       data,
@@ -176,18 +201,7 @@ export class NotificationService {
     }
 
     if (row.isRead) {
-      return {
-        id: row.id,
-        recipientAccountId: row.recipientAccountId,
-        type: row.type,
-        title: row.title,
-        message: row.message,
-        referenceEntityType: row.referenceEntityType,
-        referenceEntityId: row.referenceEntityId,
-        isRead: row.isRead,
-        createdAt: row.createdAt,
-        readAt: row.readAt,
-      };
+      return this.toDto(row, user);
     }
 
     const now = new Date();
@@ -200,18 +214,7 @@ export class NotificationService {
       .where(eq(notifications.id, id))
       .returning();
 
-    return {
-      id: updated.id,
-      recipientAccountId: updated.recipientAccountId,
-      type: updated.type,
-      title: updated.title,
-      message: updated.message,
-      referenceEntityType: updated.referenceEntityType,
-      referenceEntityId: updated.referenceEntityId,
-      isRead: updated.isRead,
-      createdAt: updated.createdAt,
-      readAt: updated.readAt,
-    };
+    return this.toDto(updated, user);
   }
 
   /**

@@ -14,6 +14,7 @@ import { classes } from '../../../infrastructure/database/schema/classes.schema'
 import { books } from '../../../infrastructure/database/schema/academics.schema';
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 import { DecidePromotionSchema } from '@edutech/shared';
 import type {
   DecidePromotionDto,
@@ -28,6 +29,18 @@ export class PromotionService {
     @Inject(DRIZZLE_DB)
     private readonly db: any,
   ) {}
+
+  /**
+   * Read scope for promotions: a promotion belongs to the class of the exam its exam result came from (the same
+   * rule the process-promotion check uses). Supervisors see all; a teacher only promotions from their own classes.
+   * Requires the query to join examResults -> exams -> classes.
+   */
+  private teacherScopeConditions(user: AuthUser): SQL[] {
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'ALL') return [];
+    if (scope.kind === 'NONE') throw forbiddenResource('You do not have permission to access promotions');
+    return [eq(classes.teacherId, scope.teacherId)];
+  }
 
   /**
    * Helper to verify supervisor access
@@ -308,10 +321,16 @@ export class PromotionService {
       .innerJoin(books, eq(promotions.fromBookId, books.id))
       .leftJoin(toBooks, eq(promotions.toBookId, toBooks.id))
       .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
-      .where(eq(promotions.id, id))
+      .innerJoin(exams, eq(examResults.examId, exams.id))
+      .innerJoin(classes, eq(exams.classId, classes.id))
+      .where(and(eq(promotions.id, id), ...this.teacherScopeConditions(user)))
       .limit(1);
 
     if (!row) {
+      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
+      if (resolveDataScope(user).kind !== 'ALL') {
+        throw forbiddenResource('You do not have permission to access this promotion');
+      }
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Promotion with id ${id} not found`,
@@ -380,9 +399,11 @@ export class PromotionService {
       .innerJoin(students, eq(promotions.studentId, students.id))
       .innerJoin(books, eq(promotions.fromBookId, books.id))
       .leftJoin(toBooks, eq(promotions.toBookId, toBooks.id))
-      .innerJoin(examResults, eq(promotions.examResultId, examResults.id));
+      .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
+      .innerJoin(exams, eq(examResults.examId, exams.id))
+      .innerJoin(classes, eq(exams.classId, classes.id));
 
-    const conditions: SQL[] = [];
+    const conditions: SQL[] = [...this.teacherScopeConditions(user)];
     if (filter.studentId) {
       conditions.push(eq(promotions.studentId, filter.studentId));
     }
@@ -451,6 +472,9 @@ export class PromotionService {
       .limit(1);
 
     if (!student) {
+      if (resolveDataScope(user).kind !== 'ALL') {
+        throw forbiddenResource('You do not have permission to access this student');
+      }
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Student with id ${studentId} not found`,

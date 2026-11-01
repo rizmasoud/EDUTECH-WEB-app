@@ -16,6 +16,8 @@ import {
   type EnrollmentStatus,
   type PaginatedResult,
 } from '@edutech/shared';
+import type { AuthUser } from '@edutech/shared';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 import type {
   CreateEnrollmentInput,
   UpdateEnrollmentInput,
@@ -117,23 +119,43 @@ export class EnrollmentsService {
   async findAllByClass(
     classId: string,
     query: QueryEnrollmentsInput,
+    user: AuthUser,
   ): Promise<PaginatedResult<EnrollmentResponseDto>> {
+    const scope = resolveDataScope(user);
     const cls = await this.classRepo.findById(classId);
+
+    // Only a supervisor or the teacher of this very class may read its roster (same 403 whether the class is
+    // someone else's or does not exist).
+    if (scope.kind === 'NONE' || (scope.kind === 'TEACHER' && cls?.teacherId !== scope.teacherId)) {
+      throw forbiddenResource('You do not have permission to access this class');
+    }
     if (!cls) {
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Class with id ${classId} not found`,
       });
     }
+    // A teacher's own class that is not current is as inaccessible as someone else's.
+    if (
+      scope.kind === 'TEACHER' &&
+      !(cls.status === 'ACTIVE' && (await this.classRepo.isTermActive(cls.academicTermId)))
+    ) {
+      throw forbiddenResource('You do not have permission to access this class');
+    }
 
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
 
-    const result = await this.enrollmentRepo.findAllByClass(classId, {
-      status: query.status,
-      page,
-      pageSize,
-    });
+    // A teacher's roster covers current students only (ACTIVE class in the ACTIVE term, ACTIVE enrollments);
+    // supervisors see every enrollment of the class.
+    const result =
+      scope.kind === 'TEACHER'
+        ? await this.enrollmentRepo.findCurrentByClassAndTeacher(classId, scope.teacherId, { page, pageSize })
+        : await this.enrollmentRepo.findAllByClass(classId, {
+            status: query.status,
+            page,
+            pageSize,
+          });
 
     const totalPages = Math.ceil(result.total / pageSize) || 1;
 

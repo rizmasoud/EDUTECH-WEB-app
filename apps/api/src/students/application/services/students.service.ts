@@ -18,7 +18,9 @@ import {
   type FindStudentsFilter,
   type PaginatedResult,
   type EnrollmentResponseDto,
+  type AuthUser,
 } from '@edutech/shared';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 
 @Injectable()
 export class StudentsService {
@@ -54,16 +56,42 @@ export class StudentsService {
     return this.mapToDto(created);
   }
 
-  async findAll(filter?: FindStudentsFilter): Promise<PaginatedResult<StudentResponseDto>> {
+  /**
+   * A teacher may read a student only while that student currently has a class with the teacher in the
+   * current (ACTIVE) academic term (see currentTeachingCondition). Supervisors are unrestricted. Same 403 whether the student is someone else's or does not exist.
+   */
+  private async assertCanReadStudent(studentId: string, user: AuthUser): Promise<void> {
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'ALL') return;
+    if (
+      scope.kind === 'NONE' ||
+      !(await this.studentRepo.hasCurrentClassWithTeacher(studentId, scope.teacherId))
+    ) {
+      throw forbiddenResource('You do not have permission to access this student');
+    }
+  }
+
+  async findAll(
+    filter: FindStudentsFilter | undefined,
+    user: AuthUser,
+  ): Promise<PaginatedResult<StudentResponseDto>> {
     const page = Math.max(1, Number(filter?.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(filter?.pageSize) || 20));
 
-    const result = await this.studentRepo.findAll({
-      search: filter?.search,
-      isActive: filter?.isActive,
-      page,
-      pageSize,
-    });
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'NONE') {
+      return { items: [], total: 0, page, pageSize, totalPages: 1 };
+    }
+
+    const result = await this.studentRepo.findAll(
+      {
+        search: filter?.search,
+        isActive: filter?.isActive,
+        page,
+        pageSize,
+      },
+      scope.kind === 'TEACHER' ? { teacherId: scope.teacherId } : undefined,
+    );
 
     const totalPages = Math.ceil(result.total / pageSize) || 1;
 
@@ -76,7 +104,8 @@ export class StudentsService {
     };
   }
 
-  async findById(id: string): Promise<StudentResponseDto> {
+  async findById(id: string, user: AuthUser): Promise<StudentResponseDto> {
+    await this.assertCanReadStudent(id, user);
     const student = await this.studentRepo.findById(id);
     if (!student) {
       throw new NotFoundException({
@@ -109,7 +138,9 @@ export class StudentsService {
     return this.mapToDto(updated);
   }
 
-  async findStudentEnrollments(studentId: string): Promise<EnrollmentResponseDto[]> {
+  async findStudentEnrollments(studentId: string, user: AuthUser): Promise<EnrollmentResponseDto[]> {
+    await this.assertCanReadStudent(studentId, user);
+    const scope = resolveDataScope(user);
     const student = await this.studentRepo.findById(studentId);
     if (!student) {
       throw new NotFoundException({
@@ -118,7 +149,12 @@ export class StudentsService {
       });
     }
 
-    const enrollments = await this.enrollmentRepo.findAllByStudent(studentId);
+    // A teacher sees only the student's current enrollments in the teacher's own classes, never the student's
+    // enrollments in other teachers' classes or past ones (a student can study with several teachers).
+    const enrollments =
+      scope.kind === 'TEACHER'
+        ? await this.enrollmentRepo.findCurrentByStudentAndTeacher(studentId, scope.teacherId)
+        : await this.enrollmentRepo.findAllByStudent(studentId);
     return enrollments.map((e) => ({
       id: e.id,
       classId: e.classId,

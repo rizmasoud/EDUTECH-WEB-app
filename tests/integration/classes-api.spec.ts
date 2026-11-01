@@ -245,7 +245,7 @@ describe('Classes & Enrollment API & Authorization Integration Tests', () => {
     assert.equal(body.error.code, 'UNAUTHENTICATED');
   });
 
-  it('2. TEACHER role can read classes and class enrollments (200 OK)', async () => {
+  it('2. TEACHER role can call the class list (200 OK); it is limited to their own classes, see teacher-data-access.spec.ts', async () => {
     const res = await fetch(`${baseUrl}/api/v1/classes`, {
       headers: { Authorization: `Bearer ${teacherToken}` },
     });

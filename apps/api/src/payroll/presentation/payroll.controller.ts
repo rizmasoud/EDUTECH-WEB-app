@@ -34,6 +34,7 @@ export class PayrollController {
   ) {}
 
   @Get()
+  @Roles('SUPERVISOR')
   async findAll(
     @Query() query: QueryPayrollsDto,
     @CurrentUser() user: AuthUser,
@@ -52,6 +53,7 @@ export class PayrollController {
   }
 
   @Get(':id')
+  @Roles('SUPERVISOR')
   async findById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -90,6 +92,7 @@ export class PayrollController {
   }
 
   @Get(':id/items')
+  @Roles('SUPERVISOR')
   async findItems(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -118,6 +121,7 @@ export class TeacherPayrollController {
   ) {}
 
   @Get(':id/payrolls')
+  @Roles('SUPERVISOR')
   async findTeacherPayrolls(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,

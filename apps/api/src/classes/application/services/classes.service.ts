@@ -16,6 +16,8 @@ import {
   type ClassType,
   type PaginatedResult,
 } from '@edutech/shared';
+import type { AuthUser } from '@edutech/shared';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 import type {
   CreateClassInput,
   UpdateClassInput,
@@ -145,19 +147,27 @@ export class ClassesService {
     return this.mapToDto(created, 0);
   }
 
-  async findAll(query: QueryClassesInput): Promise<PaginatedResult<ClassResponseDto>> {
+  async findAll(query: QueryClassesInput, user: AuthUser): Promise<PaginatedResult<ClassResponseDto>> {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
+
+    // A teacher only ever sees their own CURRENT classes (ACTIVE class in the ACTIVE term): any `teacherId`,
+    // `status` or term they pass can only narrow that, never widen it. A non-supervisor account without a
+    // linked teacher record sees nothing.
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'NONE') {
+      return { items: [], total: 0, page, pageSize, totalPages: 1 };
+    }
 
     const result = await this.classRepo.findAll({
       academicTermId: query.academicTermId,
       bookId: query.bookId,
-      teacherId: query.teacherId,
+      teacherId: scope.kind === 'TEACHER' ? scope.teacherId : query.teacherId,
       status: query.status,
       classType: query.classType,
       page,
       pageSize,
-    });
+    }, { currentOnly: scope.kind === 'TEACHER' });
 
     const totalPages = Math.ceil(result.total / pageSize) || 1;
 
@@ -177,13 +187,28 @@ export class ClassesService {
     };
   }
 
-  async findById(id: string): Promise<ClassResponseDto> {
+  private async isCurrentClass(cls: { status: string; academicTermId: string }): Promise<boolean> {
+    return cls.status === 'ACTIVE' && (await this.classRepo.isTermActive(cls.academicTermId));
+  }
+
+  async findById(id: string, user: AuthUser): Promise<ClassResponseDto> {
+    const scope = resolveDataScope(user);
     const cls = await this.classRepo.findById(id);
+
+    // For a teacher "not yours" and "does not exist" are the same 403, so ids cannot be probed.
+    if (scope.kind === 'NONE' || (scope.kind === 'TEACHER' && cls?.teacherId !== scope.teacherId)) {
+      throw forbiddenResource('You do not have permission to access this class');
+    }
     if (!cls) {
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Class with id ${id} not found`,
       });
+    }
+    // A teacher's own class that is not current (DRAFT/COMPLETED/CANCELLED, or outside the ACTIVE term) is
+    // treated exactly like someone else's.
+    if (scope.kind === 'TEACHER' && !(await this.isCurrentClass(cls))) {
+      throw forbiddenResource('You do not have permission to access this class');
     }
 
     const count = await this.classRepo.countActiveEnrollments(id);

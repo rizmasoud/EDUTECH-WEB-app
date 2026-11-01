@@ -806,7 +806,8 @@ export interface TeacherResponseDto {
   accountId: string | null;
   firstName: string;
   lastName: string;
-  baseRate: string;
+  /** Pay rate. Present only for supervisors; never sent to teacher accounts (MVP scope decision D2). */
+  baseRate?: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -1191,6 +1192,24 @@ export interface StudentAttendanceItemDto {
 
 export interface RecordStudentAttendanceDto {
   items: StudentAttendanceItemDto[];
+}
+
+/**
+ * A teacher's own attendance counts, from teacher_attendance_records (never student attendance).
+ * Counts only: no payroll amounts, rates or other financial values.
+ */
+export type TeacherAttendanceSummaryScope = 'ALL' | 'CURRENT' | 'TERM';
+
+export interface TeacherAttendanceSummaryDto {
+  teacherId: string;
+  /** ALL = every term; CURRENT = classes of the ACTIVE term; TERM = one specified term. */
+  scope: TeacherAttendanceSummaryScope;
+  /** The term counted (TERM, or CURRENT when exactly one term is ACTIVE); null otherwise. */
+  academicTermId: string | null;
+  sessionsAttended: number; // status PRESENT
+  sessionsAbsent: number; // status ABSENT
+  sessionsExcused: number; // status EXCUSED
+  sessionsRecorded: number; // all of the above
 }
 
 export interface RecordTeacherAttendanceDto {
@@ -1708,7 +1727,8 @@ export interface PayrollItemDto {
   payrollId: string;
   type: PayrollItemType;
   quantity: string;
-  rate: string;
+  /** Per-unit rate. Present only for supervisors; never sent to teacher accounts (derived from the pay rate). */
+  rate?: string;
   amount: string;
   referenceId: string | null;
   description: string | null;

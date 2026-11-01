@@ -25,7 +25,10 @@ export interface UpdateClassData {
 
 export interface IClassRepository {
   findById(id: string): Promise<Class | null>;
-  findAll(filter?: FindClassesFilter): Promise<{ items: Class[]; total: number }>;
+  /** `currentOnly` restricts to ACTIVE classes of the ACTIVE academic term (what teachers may see). */
+  findAll(filter?: FindClassesFilter, options?: { currentOnly?: boolean }): Promise<{ items: Class[]; total: number }>;
+  /** True when the academic term's status is ACTIVE (the current term). */
+  isTermActive(termId: string): Promise<boolean>;
   create(data: CreateClassData): Promise<Class>;
   update(id: string, updates: UpdateClassData): Promise<Class>;
   countActiveEnrollments(classId: string): Promise<number>;
