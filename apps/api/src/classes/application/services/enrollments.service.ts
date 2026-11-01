@@ -168,7 +168,22 @@ export class EnrollmentsService {
     };
   }
 
-  async findById(id: string): Promise<EnrollmentResponseDto> {
+  async findById(id: string, user: AuthUser): Promise<EnrollmentResponseDto> {
+    const scope = resolveDataScope(user);
+    // A teacher reads only a current enrollment of their own class (same rule as the roster and a student's
+    // enrollments: see currentTeachingCondition). Anything else, including an id that does not exist and an account
+    // with no linked teacher record, gets the same 403, so ids cannot be probed. Supervisors are unrestricted.
+    if (scope.kind !== 'ALL') {
+      const current =
+        scope.kind === 'TEACHER'
+          ? await this.enrollmentRepo.findCurrentByIdAndTeacher(id, scope.teacherId)
+          : null;
+      if (!current) {
+        throw forbiddenResource('You do not have permission to access this enrollment');
+      }
+      return this.mapToDto(current);
+    }
+
     const enrollment = await this.enrollmentRepo.findById(id);
     if (!enrollment) {
       throw new NotFoundException({

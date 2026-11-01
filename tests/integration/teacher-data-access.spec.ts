@@ -68,6 +68,7 @@ import { TeachersService } from '../../apps/api/src/teachers/application/service
 import { DrizzleTeacherRepository } from '../../apps/api/src/teachers/infrastructure/drizzle-teacher.repository';
 import { TEACHER_REPOSITORY } from '../../apps/api/src/teachers/domain/tokens';
 import { ClassesController } from '../../apps/api/src/classes/presentation/classes.controller';
+import { EnrollmentsController } from '../../apps/api/src/classes/presentation/enrollments.controller';
 import { ClassesService } from '../../apps/api/src/classes/application/services/classes.service';
 import { EnrollmentsService } from '../../apps/api/src/classes/application/services/enrollments.service';
 import { DrizzleClassRepository } from '../../apps/api/src/classes/infrastructure/drizzle-class.repository';
@@ -82,7 +83,7 @@ import { HttpExceptionFilter } from '../../apps/api/src/shared/filters/http-exce
 let sharedDb: any;
 
 @Module({
-  controllers: [ClassesController, StudentsController, TeachersController, PayrollController, TeacherPayrollController, PromotionsController, StudentPromotionsController, ExamsController, LessonPlansController, ClassLessonPlansController, TeacherAttendanceSummaryController, NotificationsController],
+  controllers: [ClassesController, EnrollmentsController, StudentsController, TeachersController, PayrollController, TeacherPayrollController, PromotionsController, StudentPromotionsController, ExamsController, LessonPlansController, ClassLessonPlansController, TeacherAttendanceSummaryController, NotificationsController],
   providers: [
     ClassesService,
     EnrollmentsService,
@@ -758,6 +759,97 @@ describe('Teacher data access is enforced by the backend', () => {
       assert.equal((await json(`/exams/${b.exam}`, teacherA)).status, 403);
       assert.equal((await json(`/exams/${b.exam}/results`, teacherA)).status, 403);
       assert.equal((await json(`/exams/${b.exam}`, supervisor)).status, 200);
+    });
+  });
+
+  describe('GET /enrollments/:id (object-level authorization)', () => {
+    const db = () => sharedDb;
+    const MISSING_ID = '00000000-0000-4000-8000-000000000000';
+    const mkStudent = async (firstName: string) =>
+      (await db().insert(students).values({ firstName, lastName: 'Enr', isActive: true }).returning())[0].id as string;
+    const mkClass = async (teacherId: string, status: string, academicTermId: string = termId) =>
+      (
+        await db()
+          .insert(classes)
+          .values({ academicTermId, bookId, teacherId, classType: 'REGULAR', status, capacity: 12, name: `E-${status}` })
+          .returning()
+      )[0].id as string;
+    const mkEnrollment = async (classId: string, status = 'ACTIVE') =>
+      (await db().insert(enrollments).values({ classId, studentId: await mkStudent(`E-${status}`), status }).returning())[0] as {
+        id: string;
+        classId: string;
+        studentId: string;
+      };
+    const assertForbidden = (res: { status: number; body: any }, label: string) => {
+      assert.equal(res.status, 403, label);
+      assert.equal(res.body.error.code, 'FORBIDDEN_RESOURCE', label);
+    };
+
+    it('a teacher reads their own ACTIVE enrollment in an ACTIVE class of the ACTIVE term', async () => {
+      const enr = await mkEnrollment(classA1);
+      const res = await json(`/enrollments/${enr.id}`, teacherA);
+      assert.equal(res.status, 200);
+      assert.equal(res.body.id, enr.id);
+      assert.equal(res.body.classId, classA1);
+      assert.equal(res.body.studentId, enr.studentId);
+      assert.equal(res.body.status, 'ACTIVE');
+    });
+
+    it("a teacher cannot read another teacher's enrollment by changing the id", async () => {
+      const enr = await mkEnrollment(classB1);
+      assertForbidden(await json(`/enrollments/${enr.id}`, teacherA), 'teacher A -> teacher B enrollment');
+      assert.equal((await json(`/enrollments/${enr.id}`, teacherB)).status, 200, 'its own teacher still can');
+    });
+
+    it('a teacher cannot read an enrollment in their own COMPLETED class', async () => {
+      const enr = await mkEnrollment(await mkClass(teacherAId, 'COMPLETED'));
+      assertForbidden(await json(`/enrollments/${enr.id}`, teacherA), 'completed class');
+    });
+
+    it('a teacher cannot read an enrollment in a class of a CLOSED academic term', async () => {
+      const closedTerm = (
+        await db()
+          .insert(academicTerms)
+          .values({ name: 'Closed (enrollment by id)', startDate: '2025-01-01', endDate: '2025-06-01', status: 'CLOSED' })
+          .returning()
+      )[0].id as string;
+      const enr = await mkEnrollment(await mkClass(teacherAId, 'ACTIVE', closedTerm));
+      assertForbidden(await json(`/enrollments/${enr.id}`, teacherA), 'closed term');
+    });
+
+    it('a teacher cannot read a WITHDRAWN enrollment, even in their own current class', async () => {
+      const enr = await mkEnrollment(classA1, 'WITHDRAWN');
+      assertForbidden(await json(`/enrollments/${enr.id}`, teacherA), 'withdrawn enrollment');
+    });
+
+    it('a nonexistent enrollment id gives a teacher the same 403 as a forbidden one', async () => {
+      const forbidden = await json(`/enrollments/${(await mkEnrollment(classB1)).id}`, teacherA);
+      const missing = await json(`/enrollments/${MISSING_ID}`, teacherA);
+      assertForbidden(missing, 'nonexistent id');
+      assert.deepEqual(missing.body.error, forbidden.body.error, 'indistinguishable from a forbidden id');
+    });
+
+    it('a teacher account with no linked teacher record gets 403 for existing and nonexistent ids', async () => {
+      const enr = await mkEnrollment(classA1);
+      assertForbidden(await json(`/enrollments/${enr.id}`, orphanTeacher), 'orphan, existing');
+      assertForbidden(await json(`/enrollments/${MISSING_ID}`, orphanTeacher), 'orphan, nonexistent');
+    });
+
+    it('a supervisor reads any existing enrollment, whatever its class, term or status', async () => {
+      const own = await mkEnrollment(classA1);
+      const other = await mkEnrollment(classB1);
+      const withdrawn = await mkEnrollment(classA1, 'WITHDRAWN');
+      for (const e of [own, other, withdrawn]) {
+        const res = await json(`/enrollments/${e.id}`, supervisor);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.id, e.id);
+      }
+    });
+
+    it('a supervisor still gets 404 for a nonexistent enrollment', async () => {
+      const res = await json(`/enrollments/${MISSING_ID}`, supervisor);
+      assert.equal(res.status, 404);
+      assert.equal(res.body.error.code, 'RESOURCE_NOT_FOUND');
     });
   });
 });

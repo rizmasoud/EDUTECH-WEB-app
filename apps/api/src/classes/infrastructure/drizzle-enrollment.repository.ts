@@ -123,6 +123,18 @@ export class DrizzleEnrollmentRepository implements IEnrollmentRepository {
     };
   }
 
+  async findCurrentByIdAndTeacher(id: string, teacherId: string): Promise<Enrollment | null> {
+    const [row] = await this.db
+      .select({ enrollment: enrollments })
+      .from(enrollments)
+      .innerJoin(classes, eq(enrollments.classId, classes.id))
+      .innerJoin(academicTerms, eq(classes.academicTermId, academicTerms.id))
+      .where(and(eq(enrollments.id, id), currentTeachingCondition(teacherId)))
+      .limit(1);
+
+    return row ? this.mapRowToEntity(row.enrollment) : null;
+  }
+
   async findCurrentByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]> {
     const rows = await this.db
       .select({ enrollment: enrollments })

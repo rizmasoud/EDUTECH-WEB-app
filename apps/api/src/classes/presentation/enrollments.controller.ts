@@ -13,11 +13,13 @@ import {
 import { AuthGuard } from '../../auth/presentation/guards/auth.guard';
 import { RolesGuard } from '../../auth/presentation/guards/roles.guard';
 import { Roles } from '../../auth/presentation/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/presentation/decorators/current-user.decorator';
 import { EnrollmentsService } from '../application/services/enrollments.service';
 import type {
   UpdateEnrollmentInput,
   EnrollmentResponseDto,
 } from '../application/dto/enrollment.dto';
+import type { AuthUser } from '@edutech/shared';
 
 @Controller('enrollments')
 @UseGuards(AuthGuard, RolesGuard)
@@ -28,8 +30,11 @@ export class EnrollmentsController {
   ) {}
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<EnrollmentResponseDto> {
-    return this.enrollmentsService.findById(id);
+  async findById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<EnrollmentResponseDto> {
+    return this.enrollmentsService.findById(id, user);
   }
 
   @Patch(':id')
