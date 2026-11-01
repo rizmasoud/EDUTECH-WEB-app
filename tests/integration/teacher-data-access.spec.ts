@@ -507,7 +507,7 @@ describe('Teacher data access is enforced by the backend', () => {
 
       await db().update(academicTerms).set({ status: 'CLOSED' }).where(eq(academicTerms.id, t));
       assert.deepEqual(await visibleTo(teacherA, sid), { inList: false, detail: 403, enr: 403 });
-      assert.deepEqual((await json(`/classes/${c}/enrollments`, teacherA)).body.items, []);
+      assert.equal((await json(`/classes/${c}/enrollments`, teacherA)).status, 403);
       assert.equal((await json(`/classes/${c}/enrollments`, supervisor)).body.items.length, 1);
 
       const c2 = await mkClass(teacherAId, 'ACTIVE');
