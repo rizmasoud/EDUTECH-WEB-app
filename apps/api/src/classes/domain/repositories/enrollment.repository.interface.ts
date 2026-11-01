@@ -23,6 +23,8 @@ export interface IEnrollmentRepository {
   ): Promise<{ items: Enrollment[]; total: number }>;
   /** Only the student's current enrollments in `teacherId`'s classes (ACTIVE class, ACTIVE term, ACTIVE enrollment). */
   findCurrentByStudentAndTeacher(studentId: string, teacherId: string): Promise<Enrollment[]>;
+  /** One enrollment, only if it is current for `teacherId` (ACTIVE class of this teacher, ACTIVE term, ACTIVE enrollment). */
+  findCurrentByIdAndTeacher(id: string, teacherId: string): Promise<Enrollment | null>;
   createWithCapacityCheck(
     data: CreateEnrollmentData,
     maxCapacity: number,
