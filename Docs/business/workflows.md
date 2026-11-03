@@ -1056,6 +1056,8 @@ Save ExamResults
 Run Promotion Policy
 ```
 
+Promotion Policy runs only for results of the Class's `FINAL` exam (`Docs/business/business-rules.md` §17.1). A result of a `MIDTERM` or `OTHER` exam is recorded but does not trigger promotion (decision D5; the current implementation does not yet enforce this).
+
 ---
 
 ## 21.3 Result Validation
@@ -1065,6 +1067,33 @@ The Student must be enrolled in the Class.
 Invalid scores are rejected.
 
 Duplicate results for the same Exam and Student are not allowed.
+
+Every student in the exam's applicable roster must end with an outcome: a numeric score or an explicit `ABSENT` status, never a score of zero in place of absence (`Docs/business/business-rules.md` §17.4). Once the Class is `COMPLETED`, its teacher cannot create a new exam, but may still enter the initial results of the Class's already-created final exam (type `FINAL`) while the academic term is active (not for `MIDTERM` or `OTHER` exams of that Class). Once the term is fully closed, the teacher can neither create exams nor enter initial results (`Docs/business/business-rules.md` §17.9).
+
+---
+
+## 21.4 Make-Up Exam and Score Correction
+
+```text
+Absent student
+      ↓
+Make-up exam
+      ↓
+Numeric result replaces ABSENT
+(history identifies the make-up origin)
+```
+
+```text
+Teacher or Supervisor corrects a score
+      ↓
+Non-empty reason required
+      ↓
+Append revision (previous, new, reason, actor, time)
+      ↓
+Recalculate promotion eligibility
+```
+
+The Class's teacher may correct a score without Supervisor approval, whether the exam is open or closed and whether the Class is active or `COMPLETED`, while the academic term is active; once the term is fully closed only a Supervisor may correct. Corrections are visible to Supervisors in reports and history; a separate notification is not required. A make-up result replacing ABSENT is counted separately from score corrections. Revisions are never overwritten or deleted. These steps are confirmed requirements (decision D5, `Docs/product/mvp-scope.md`) and are not yet implemented. The detailed rules are in `Docs/business/business-rules.md` §17.5–§17.6 and §18.4.
 
 ---
 
@@ -1110,7 +1139,7 @@ PENDING_DECISION
       ↓
 Notify Supervisor
       ↓
-Supervisor reviews
+Class teacher or Supervisor reviews
       ↓
 Promote / Do Not Promote / Repeat / Remedial
       ↓
@@ -1119,7 +1148,7 @@ Persist Decision
 Audit
 ```
 
-The system must not automatically promote the Student before the Supervisor decision.
+The system must not automatically promote the Student before the teacher or Supervisor decision.
 
 ---
 
@@ -1130,20 +1159,14 @@ For score <60:
 ```text
 ExamResult saved
       ↓
-PENDING_DECISION
+Promotion Policy
       ↓
-Supervisor notified
-      ↓
-Supervisor reviews
-      ↓
-Select outcome
-      ↓
-Persist Promotion decision
+NOT_PROMOTED
       ↓
 Audit
 ```
 
-The exact academic outcome may depend on the available configured decisions.
+Under decision D5 a score below 60 results in `NOT_PROMOTED`. It does not create `PENDING_DECISION` and does not automatically create a Supervisor decision task or notification. A teacher cannot grant an exception. A possible future exception would require an explicit product-owner decision and Supervisor authority; none is approved. This is a provisional policy (`Docs/business/business-rules.md` §18.1).
 
 ---
 
@@ -1817,7 +1840,7 @@ Exam Results entered
         ↓
 Promotion Policy executed
         ↓
-Automatic promotion OR Supervisor decision
+Automatic promotion, teacher or Supervisor decision (60–69), or not promoted (below 60)
         ↓
 Student becomes eligible for next educational stage
         ↓

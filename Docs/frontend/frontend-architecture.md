@@ -865,12 +865,12 @@ Automatic Promotion
 
 ```text
 60–69
-Supervisor Decision Required
+Teacher or Supervisor Decision Required
 ```
 
 ```text
 Below 60
-Supervisor Decision Required
+Not Promoted (provisional policy, no decision required)
 ```
 
 For pending cases, the UI should clearly show:

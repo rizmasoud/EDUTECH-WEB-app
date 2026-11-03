@@ -959,10 +959,10 @@ Score >= 70
     -> automatic promotion
 
 60-69
-    -> Supervisor decision required
+    -> teacher or Supervisor decision required
 
 < 60
-    -> Supervisor decision required
+    -> NOT_PROMOTED (provisional policy, no pending decision)
 ```
 
 For terminal Books:

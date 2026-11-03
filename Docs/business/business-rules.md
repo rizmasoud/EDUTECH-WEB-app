@@ -774,6 +774,12 @@ Supported exam types include:
 
 The system may add additional types later without changing the fundamental promotion model.
 
+**Final exam.** The final exam of a Class in an academic term is the exam whose type is `FINAL`. Each Class has exactly one final exam per academic term. A `MIDTERM` exam is optional: a Class may or may not have one. It is for progress assessment and does not trigger level promotion. Only the Class's single `FINAL` exam determines whether the student progresses to the next level, subject to all existing promotion eligibility conditions.
+
+The final exam is generally scheduled from the beginning of the term. If an unexpected event postpones it by several days or a week, this is a change of date of the same exam (§17.8), not the creation of a new final exam.
+
+> **Implementation status:** The current schema stores the exam type but does not enforce one `FINAL` exam per Class per academic term, and promotion processing does not restrict itself to `FINAL` exams, so a result of another exam type can currently trigger promotion processing. This is a technical gap, not a product question (`Docs/product/mvp-scope.md`, D5).
+
 ---
 
 ## 17.2 Score Range
@@ -801,11 +807,142 @@ A student must not receive an exam result for a Class in which they were not enr
 
 ---
 
+## 17.4 Result Completion
+
+Every student in an exam's applicable roster must have a recorded outcome.
+
+The outcome is either:
+
+- A numeric score (§17.2), or
+- An explicit `ABSENT` status.
+
+Absence must not be represented as a score of zero. A score of zero is a real score.
+
+An exam's initial result entry is complete only when every applicable student has an outcome.
+
+Reports and exam summaries must distinguish:
+
+- Total applicable students
+- Students with numeric scores
+- Absent students
+- Make-up outcomes
+- Score corrections
+
+Counting rules:
+
+- Every applicable student has either a numeric score or `ABSENT`, so students with numeric scores plus absent students equal total applicable students.
+- A make-up outcome is a numeric score that replaced `ABSENT` (§17.5). It is therefore also a student with a numeric score; the make-up count only identifies how many of those scores came from make-up exams.
+- A make-up outcome is never counted as a score correction. A score correction is a later revision of an existing result (§17.6) that is not a make-up outcome.
+- Neither make-up outcomes nor score corrections are ever counted as additional students or additional results.
+
+---
+
+## 17.5 Absence and Make-Up Exams
+
+A student with an `ABSENT` outcome is not eligible for promotion until a make-up exam produces a numeric score.
+
+A make-up exam follows the same scoring rules (§17.2) and the same promotion rules (§18) as the original exam.
+
+The result history must identify that the score originated from a make-up exam.
+
+A make-up result replaces the student's `ABSENT` outcome with a numeric score while preserving the historical record (§17.6). The replacement appears in the revision history (previous status `ABSENT`, new score, actor, timestamp) with its make-up origin.
+
+Make-up outcomes are counted separately from score corrections (§17.4). A make-up result replacing `ABSENT` must not increase the number of score corrections.
+
+---
+
+## 17.6 Score Corrections and Revision History
+
+A score correction is a revision of an existing result. It is not a new result and not a new student.
+
+Three concepts are separate and must not be conflated: *exam closure* (the exam event is closed), *class completion* (the Class status `COMPLETED`, §7.2) and *academic-term closure* (the term is fully closed, §3.2).
+
+**Who may correct, and when.** The deciding boundary is the academic term. The teacher of the relevant Class may directly correct an existing score of that Class's exam, without Supervisor approval, whether the exam is open or closed and whether the Class is active or `COMPLETED`, as long as the academic term is active. Once the academic term is fully closed, teachers cannot directly correct scores. A Supervisor may correct any exam result in all of these states, including a result a teacher has already corrected. A teacher may not correct the results of another teacher's Class.
+
+| Exam | Class | Academic term | Class's teacher may directly correct a score? |
+|---|---|---|---|
+| Closed | Active or Completed | Active | Yes |
+| Open | Active or Completed | Active | Yes |
+| Any | Any | Fully closed | No (Supervisor only) |
+
+Supervisor approval is not required before a teacher's correction.
+
+Every correction requires a non-empty reason.
+
+Every change made by a teacher or a Supervisor must be recorded in an append-only revision history containing:
+
+- Previous score or status
+- New score or status
+- Reason
+- Actor
+- Timestamp
+
+A later correction must never overwrite or delete a previous revision.
+
+Replacing `ABSENT` with a make-up result is recorded in the same history but is a make-up outcome, not a score correction (§17.5, §17.4).
+
+The result shows its latest outcome and the history keeps every earlier one. There is still one current result per Student per Exam (§28); revisions do not create additional results.
+
+Every correction triggers promotion re-evaluation (§18.4).
+
+The MVP has no student role (only Supervisor and Teacher), so student-submitted objections are outside the current scope.
+
+---
+
+## 17.7 Supervisor Visibility of Corrections
+
+Teacher score corrections must be visible to Supervisors in reports and in activity and history records.
+
+Supervisors must be able to review score corrections and their reasons.
+
+Supervisors should be able to see exam-level summaries that distinguish student counts, make-up outcomes and correction counts (§17.4).
+
+Corrections do not require prior Supervisor approval, and no mandatory review or approval queue exists for them.
+
+A separate notification to the Supervisor is not required and is not a confirmed requirement. If one is ever added, it only informs the Supervisor and must not become a prerequisite for a correction.
+
+---
+
+## 17.8 Exam Date Changes
+
+A teacher may change an exam's date until the exam event is closed.
+
+After the exam event is closed, a teacher may not change its date.
+
+Score corrections (§17.6) remain permitted after exam closure, under the academic-term rule of §17.6.
+
+Exam closure is a separate concept from class completion and academic-term closure. What closure means and who closes an exam are not defined (`Docs/product/mvp-scope.md`, U13), and this rule does not prescribe how closure is implemented.
+
+---
+
+## 17.9 Creating Exams and Entering Initial Results After Completion
+
+This is a temporary restriction that preserves the previously agreed policy, with one exception.
+
+| Action by the Class's teacher | Class `COMPLETED`, term active | Term fully closed |
+|---|---|---|
+| Create a new exam | Not allowed | Not allowed |
+| Enter initial results of the Class's already-created final exam (type `FINAL`) | Allowed | Not allowed |
+| Enter initial results of any other exam (`MIDTERM` or `OTHER`) | Not allowed | Not allowed |
+| Correct an existing score (§17.6) | Allowed | Not allowed (Supervisor only) |
+
+**Exception.** The teacher of a `COMPLETED` Class may enter the initial results of that Class's already-created final exam, the exam of type `FINAL` (§17.1), while the academic term is active. The exception covers only the final exam of that same Class. It does not permit creating another exam, or entering initial results for a `MIDTERM` or `OTHER` exam; the restrictions on those exams are unchanged.
+
+**Supervisors** retain their existing broader access. The restriction and the exception describe teachers.
+
+**Score corrections are unaffected.** The exception does not change §17.6: the Class's teacher may correct existing scores while the term is active, including after exam closure and after class completion.
+
+**Workflow.** A language-school Class may have 12 regular teaching sessions followed by the final exam in session 13. Completing the regular teaching must not prevent the teacher from entering the final exam's initial results. No new Class status, exam status, field or endpoint is introduced to represent this.
+
+> **Implementation status:** §17.4–§17.9 are confirmed requirements (decision D5 in `Docs/product/mvp-scope.md`). The current implementation does not yet satisfy them. The verified status is recorded in D5.
+
+---
+
 # 18. Promotion Rules
 
 ## 18.1 Promotion Thresholds
 
-Promotion is determined by exam score.
+Promotion is determined by the exam score of the Class's final exam (§17.1). A `MIDTERM` result does not trigger promotion.
 
 ### Score >= 70
 
@@ -819,13 +956,13 @@ The system may notify the Supervisor or display the result in the appropriate da
 
 ### Score 60–69
 
-The result requires Supervisor decision.
+The result requires a decision by the Class's teacher or the Supervisor.
 
 The Promotion status becomes:
 
 `PENDING_DECISION`
 
-The Supervisor may choose an appropriate decision such as:
+The deciding teacher or Supervisor may choose an appropriate decision such as:
 
 - Promote
 - Do Not Promote
@@ -836,22 +973,29 @@ The Supervisor may choose an appropriate decision such as:
 
 ### Score < 60
 
-The result requires Supervisor decision.
+A score below 60 does not qualify for promotion.
 
-The Supervisor determines the appropriate outcome according to the available policy.
+The Promotion status becomes:
 
-Possible decisions include:
+`NOT_PROMOTED`
 
-- Repeat
-- Remedial
-- Do Not Promote
-- Other configured outcome
+It does not create `PENDING_DECISION`, and it does not automatically create a Supervisor decision task or notification.
+
+A teacher cannot grant an exception. A possible future exception would require an explicit product-owner decision and Supervisor authority. No exception is approved, and no Repeat or Remedial pathway, or any other Supervisor outcome, is currently approved for below-60 results. Any future exception requires a separate product-owner decision.
+
+This is a provisional policy, subject to future product-owner review. It must not be treated as permanently settled (`Docs/product/mvp-scope.md`, U13).
+
+---
+
+### Outcome `ABSENT`
+
+A student with an `ABSENT` outcome has no score and is not eligible for promotion until a numeric make-up result exists (§17.5).
 
 ---
 
 ## 18.2 Promotion Decision Audit
 
-Supervisor decisions must record:
+Teacher and Supervisor decisions must record:
 
 - Decision
 - Decision maker
@@ -869,6 +1013,8 @@ Promotion processing must be idempotent.
 
 The same ExamResult must not accidentally create multiple conflicting Promotion records because the processing operation was repeated.
 
+A score correction (§17.6) is a new revision of the result and legitimately triggers a new evaluation (§18.4). Idempotency and uniqueness apply to conflicting current outcomes and to repeated processing of the same result revision. They do not require destroying a promotion that a correction has invalidated: the original promotion and its revocation are kept as history, and only one outcome is current at a time. How this is stored is a technical design decision (`Docs/database/database-specification.md` §30, §52).
+
 ---
 
 ## 18.4 Score Changes
@@ -880,6 +1026,27 @@ The backend must handle the resulting promotion state transactionally.
 The change must be audited.
 
 The system must not leave the Student in a contradictory educational state.
+
+Every score correction (§17.6) triggers promotion re-evaluation against all existing promotion conditions, not against score thresholds alone.
+
+Examples, when all other promotion conditions are satisfied:
+
+- `55 → 70`: the student is automatically promoted.
+- `75 → 60`: the previous promotion is revoked and the student's current progression state becomes Conditional.
+- A corrected score below 60 does not qualify for promotion under the provisional policy of §18.1: any previous promotion is revoked (as described below) and the status becomes `NOT_PROMOTED`.
+- A numeric make-up result replacing `ABSENT` is evaluated under §18.1 like any other score.
+
+When a correction invalidates a previous promotion:
+
+- The original promotion record and its history are preserved.
+- A promotion-revocation event is recorded with its timestamp and audit information (the correction, its reason and its actor).
+- If the corrected score falls in the Conditional range, the student's current progression state becomes Conditional: a pending decision by the Class's teacher or the Supervisor.
+- Enrollment, attendance and class participation records in a higher-level class are never deleted or automatically reversed.
+- If the student is already enrolled in and attending a higher-level class, a concise explanation is shown to the Supervisor, for example: "The student is currently enrolled in and attending a higher-level class." No further automatic handling of this uncommon situation is defined.
+
+This documentation does not define a status or field for the revocation event. Whether it is a status, a separate record or a history entry is a technical design decision.
+
+How a correction affects a student whose outcome came from an explicit teacher or Supervisor decision is not yet decided (`Docs/product/mvp-scope.md`, U13).
 
 ---
 
@@ -1342,7 +1509,7 @@ Examples include:
 
 For scores >=70, promotion is automatic.
 
-For scores 60–69 and below 60, the Supervisor should receive an appropriate decision-required notification.
+For scores 60–69, the Supervisor should receive an appropriate decision-required notification (who receives it is open: `Docs/product/mvp-scope.md`, U13). A score below 60 does not automatically create a decision-required notification (§18.1, provisional).
 
 ---
 
@@ -1500,7 +1667,7 @@ Two calculations/finalization operations must not create duplicate or contradict
 
 ### Promotion
 
-Repeated processing of the same ExamResult must not create conflicting Promotion records.
+Repeated processing of the same ExamResult must not create conflicting Promotion records. Superseded promotions kept as history after a score correction are not conflicting records (§18.3).
 
 Database constraints and transactions should be used where appropriate.
 
