@@ -843,7 +843,7 @@ describe('Phase 13: End-to-End Critical MVP Workflows & Regression Suite', () =>
       const jsonC2 = await rC2.json();
       const jsonP = await rP.json();
 
-      assert.strictEqual(jsonF.status, 'PENDING_DECISION', '59.99 score must result in PENDING_DECISION promotion status');
+      assert.strictEqual(jsonF.status, 'NOT_PROMOTED', '59.99 score must result in NOT_PROMOTED promotion status (provisional policy, no pending decision)');
       assert.strictEqual(jsonC1.status, 'PENDING_DECISION', '60.00 score must result in PENDING_DECISION promotion status');
       assert.strictEqual(jsonC2.status, 'PENDING_DECISION', '69.99 score must result in PENDING_DECISION promotion status');
       assert.strictEqual(jsonP.status, 'AUTOMATIC', '70.00 score must result in AUTOMATIC status');
