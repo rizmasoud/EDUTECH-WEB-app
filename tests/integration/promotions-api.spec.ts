@@ -431,7 +431,7 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
 
     const [rDRem] = await db
       .insert(examResults)
-      .values({ examId: exam1Id, studentId: studentDecisionRemedialId, score: '58.00' })
+      .values({ examId: exam1Id, studentId: studentDecisionRemedialId, score: '61.00' })
       .returning();
     resultDecideRemedialId = rDRem.id;
 
@@ -614,7 +614,7 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     assert.equal(promo.decision, null);
   });
 
-  it('9. Processing fail score (< 60) creates PENDING_DECISION with toBookId = null', async () => {
+  it('9. Processing fail score (< 60) creates NOT_PROMOTED with toBookId = null and no pending decision', async () => {
     const res = await fetch(
       `${baseUrl}/api/v1/exam-results/${resultFail55Id}/process-promotion`,
       {
@@ -628,8 +628,79 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     assert.equal(promo.studentId, student5Id);
     assert.equal(promo.fromBookId, book1Id);
     assert.equal(promo.toBookId, null);
-    assert.equal(promo.status, 'PENDING_DECISION');
+    assert.equal(promo.status, 'NOT_PROMOTED');
     assert.equal(promo.decision, null);
+    assert.equal(promo.decidedBy, null);
+    assert.equal(promo.decidedAt, null);
+
+    // Persisted state: exactly one promotion, and never a PENDING_DECISION one, for this result.
+    const rows = await db.select().from(promotions).where(eq(promotions.examResultId, resultFail55Id));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'NOT_PROMOTED');
+    assert.equal(rows.filter((r: any) => r.status === 'PENDING_DECISION').length, 0);
+
+    // The creation is audited with the NOT_PROMOTED status.
+    const audits = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.action, 'CREATE_PROMOTION'), eq(auditLogs.entityId, promo.id)));
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].metadata.status, 'NOT_PROMOTED');
+  });
+
+  it('9b. Below-60 boundary: 59.99 and 0.00 are NOT_PROMOTED while 60.00 stays PENDING_DECISION', async () => {
+    const created = await db
+      .insert(students)
+      .values([
+        { firstName: 'Student', lastName: 'Boundary5999' },
+        { firstName: 'Student', lastName: 'Boundary0' },
+        { firstName: 'Student', lastName: 'Boundary60' },
+      ])
+      .returning();
+    const [r5999, r0, r60] = await db
+      .insert(examResults)
+      .values([
+        { examId: exam1Id, studentId: created[0].id, score: '59.99' },
+        { examId: exam1Id, studentId: created[1].id, score: '0.00' },
+        { examId: exam1Id, studentId: created[2].id, score: '60.00' },
+      ])
+      .returning();
+
+    const process = async (id: string) => {
+      const res = await fetch(`${baseUrl}/api/v1/exam-results/${id}/process-promotion`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${supervisorToken}` },
+      });
+      assert.equal(res.status, 200);
+      return res.json();
+    };
+
+    const p5999 = await process(r5999.id);
+    const p0 = await process(r0.id);
+    const p60 = await process(r60.id);
+
+    assert.equal(p5999.status, 'NOT_PROMOTED');
+    assert.equal(p5999.toBookId, null);
+    assert.equal(p0.status, 'NOT_PROMOTED');
+    assert.equal(p0.toBookId, null);
+    assert.equal(p60.status, 'PENDING_DECISION');
+    assert.equal(p60.toBookId, null);
+  });
+
+  it('9c. A newly processed below-60 promotion has nothing to decide (decision attempt is rejected, status unchanged)', async () => {
+    const [promo] = await db.select().from(promotions).where(eq(promotions.examResultId, resultFail55Id));
+    assert.equal(promo.status, 'NOT_PROMOTED');
+
+    const res = await fetch(`${baseUrl}/api/v1/promotions/${promo.id}/decision`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${supervisorToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision: 'PROMOTE' }),
+    });
+    assert.equal(res.status, 400);
+
+    const [after] = await db.select().from(promotions).where(eq(promotions.id, promo.id));
+    assert.equal(after.status, 'NOT_PROMOTED');
+    assert.equal(after.decision, null);
   });
 
   // ==========================================

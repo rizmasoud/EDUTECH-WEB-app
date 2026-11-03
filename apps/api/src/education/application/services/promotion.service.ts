@@ -144,9 +144,14 @@ export class PromotionService {
           toBookId = null;
         }
       }
-    } else {
-      // Both 60 <= score < 70 and score < 60 become PENDING_DECISION
+    } else if (score >= 60.0) {
+      // Conditional range (60 <= score < 70): awaits a decision.
       status = 'PENDING_DECISION';
+      toBookId = null;
+    } else {
+      // Below 60 does not qualify for promotion. Provisional policy (decision D5): the outcome is
+      // NOT_PROMOTED straight away, with no pending decision, no decider and no teacher exception.
+      status = 'NOT_PROMOTED';
       toBookId = null;
     }
 
