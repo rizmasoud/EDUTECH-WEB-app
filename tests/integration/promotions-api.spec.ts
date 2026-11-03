@@ -813,19 +813,24 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     assert.ok(promoPendingForRemedialId);
   });
 
-  it('12. Teacher cannot make supervisor decision on a pending promotion (403 FORBIDDEN)', async () => {
+  it('12. A teacher who does not own the class gets 403 FORBIDDEN_RESOURCE on a pending promotion and it stays pending', async () => {
     const res = await fetch(
       `${baseUrl}/api/v1/promotions/${promoPendingForPromoteId}/decision`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${teacherAToken}`,
+          Authorization: `Bearer ${teacherBToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ decision: 'PROMOTE' }),
       },
     );
     assert.equal(res.status, 403);
+    const body = await res.json();
+    assert.equal(body.error.code, 'FORBIDDEN_RESOURCE');
+    const [after] = await db.select().from(promotions).where(eq(promotions.id, promoPendingForPromoteId));
+    assert.equal(after.status, 'PENDING_DECISION');
+    assert.equal(after.decision, null);
   });
 
   it('13. Supervisor decision PROMOTE: status becomes PROMOTED and resolves toBookId', async () => {
@@ -1257,5 +1262,190 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     } finally {
       await db.update(classes).set({ status: 'ACTIVE' }).where(eq(classes.id, class1Id));
     }
+  });
+  // ==========================================
+  // Teacher Conditional Promotion decisions (60 <= score < 70)
+  // ==========================================
+
+  const decideRoutes = (promotionId: string) => [
+    `/promotions/${promotionId}/decision`,
+    `/promotions/${promotionId}/decide`,
+  ];
+
+  const postDecision = async (
+    path: string,
+    token: string,
+    body: unknown = { decision: 'PROMOTE' },
+  ): Promise<{ status: number; code: string | undefined; message: string | undefined; body: any }> => {
+    const res = await fetch(`${baseUrl}/api/v1${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    return { status: res.status, code: json?.error?.code, message: json?.error?.message, body: json };
+  };
+
+  // A promotion row in exam1 (class 1, teacher A) with the given linked score and status, inserted directly.
+  const mkPromotion = async (
+    score: string,
+    status: 'PENDING_DECISION' | 'PROMOTED' | 'NOT_PROMOTED' | 'AUTOMATIC' = 'PENDING_DECISION',
+  ): Promise<string> => {
+    const studentId = await mkStudent(`Decide-${score}-${status}`, [class1Id]);
+    const [result] = await db.insert(examResults).values({ examId: exam1Id, studentId, score }).returning();
+    const [promo] = await db
+      .insert(promotions)
+      .values({ studentId, fromBookId: book1Id, examResultId: result.id, status })
+      .returning();
+    return promo.id as string;
+  };
+
+  const auditCount = async (promotionId: string): Promise<number> =>
+    (
+      await db
+        .select()
+        .from(auditLogs)
+        .where(and(eq(auditLogs.entityId, promotionId), eq(auditLogs.action, 'UPDATE_PROMOTION')))
+    ).length;
+
+  it('30. Owner teacher decides a 60-69 promotion through both decision routes and is recorded as the actor', async () => {
+    const decisions = [
+      { route: 0, score: '60.00', decision: 'PROMOTE', status: 'PROMOTED' },
+      { route: 1, score: '69.99', decision: 'DO_NOT_PROMOTE', status: 'NOT_PROMOTED' },
+      { route: 0, score: '65.00', decision: 'REPEAT', status: 'NOT_PROMOTED' },
+      { route: 1, score: '66.00', decision: 'REMEDIAL', status: 'NOT_PROMOTED' },
+    ];
+    for (const d of decisions) {
+      const id = await mkPromotion(d.score);
+      const r = await postDecision(decideRoutes(id)[d.route], teacherAToken, { decision: d.decision, reason: 'teacher call' });
+      assert.equal(r.status, 200, `${d.score} ${d.decision}`);
+      assert.equal(r.body.status, d.status);
+      assert.equal(r.body.decision, d.decision);
+      assert.equal(r.body.decidedBy, teacherAAccountId);
+      if (d.decision === 'PROMOTE') assert.equal(r.body.toBookId, book2Id);
+      else assert.equal(r.body.toBookId, null);
+
+      const logs = await db
+        .select()
+        .from(auditLogs)
+        .where(and(eq(auditLogs.entityId, id), eq(auditLogs.action, 'UPDATE_PROMOTION')));
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0].actorAccountId, teacherAAccountId);
+      assert.equal(logs[0].metadata.previousStatus, 'PENDING_DECISION');
+      assert.equal(logs[0].metadata.newStatus, d.status);
+      assert.equal(logs[0].metadata.decision, d.decision);
+      assert.equal(logs[0].metadata.reason, 'teacher call');
+    }
+  });
+
+  it('31. Another teacher and a missing id both get the same 403 FORBIDDEN_RESOURCE on both routes, and nothing is written', async () => {
+    const id = await mkPromotion('65.00');
+    for (let i = 0; i < 2; i++) {
+      const foreign = await postDecision(decideRoutes(id)[i], teacherBToken);
+      const missing = await postDecision(decideRoutes(MISSING_ID)[i], teacherBToken);
+      assert.equal(foreign.status, 403);
+      assert.equal(foreign.code, 'FORBIDDEN_RESOURCE');
+      assert.equal(missing.status, 403);
+      assert.equal(missing.code, 'FORBIDDEN_RESOURCE');
+      assert.equal(foreign.message, missing.message);
+    }
+    const [row] = await db.select().from(promotions).where(eq(promotions.id, id));
+    assert.equal(row.status, 'PENDING_DECISION');
+    assert.equal(await auditCount(id), 0);
+  });
+
+  it('32. Supervisor gets 404 RESOURCE_NOT_FOUND for a missing promotion on both routes', async () => {
+    for (const route of decideRoutes(MISSING_ID)) {
+      const r = await postDecision(route, supervisorToken);
+      assert.equal(r.status, 404);
+      assert.equal(r.code, 'RESOURCE_NOT_FOUND');
+    }
+  });
+
+  it('33. A teacher account without a linked teacher record gets 403 FORBIDDEN_RESOURCE and nothing is written', async () => {
+    const id = await mkPromotion('65.00');
+    for (const route of [...decideRoutes(id), ...decideRoutes(MISSING_ID)]) {
+      const r = await postDecision(route, teacherNoRecordToken);
+      assert.equal(r.status, 403, route);
+      assert.equal(r.code, 'FORBIDDEN_RESOURCE', route);
+    }
+    const [row] = await db.select().from(promotions).where(eq(promotions.id, id));
+    assert.equal(row.status, 'PENDING_DECISION');
+    assert.equal(await auditCount(id), 0);
+  });
+
+  it('34. A teacher cannot decide when the linked score is below 60 or 70 and above, even with a pending row', async () => {
+    for (const score of ['59.99', '0.00', '70.00', '85.00', '100.00']) {
+      const id = await mkPromotion(score);
+      for (const route of decideRoutes(id)) {
+        const r = await postDecision(route, teacherAToken);
+        assert.equal(r.status, 400, `${score} ${route}`);
+        assert.equal(r.code, 'INVALID_INPUT', `${score} ${route}`);
+      }
+      const [row] = await db.select().from(promotions).where(eq(promotions.id, id));
+      assert.equal(row.status, 'PENDING_DECISION', score);
+      assert.equal(row.decision, null, score);
+      assert.equal(await auditCount(id), 0, score);
+    }
+  });
+
+  it('35. Supervisor keeps the established decision behavior, with no score-range restriction, and is recorded as actor', async () => {
+    const id = await mkPromotion('65.00');
+    const r = await postDecision(decideRoutes(id)[1], supervisorToken, { decision: 'PROMOTE' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.status, 'PROMOTED');
+    assert.equal(r.body.decidedBy, supervisorAccountId);
+    const [log] = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, id), eq(auditLogs.action, 'UPDATE_PROMOTION')));
+    assert.equal(log.actorAccountId, supervisorAccountId);
+
+    // Established behavior: a Supervisor can decide any PENDING_DECISION row regardless of the linked score.
+    const outOfRange = await mkPromotion('85.00');
+    const r2 = await postDecision(decideRoutes(outOfRange)[0], supervisorToken, { decision: 'DO_NOT_PROMOTE' });
+    assert.equal(r2.status, 200);
+    assert.equal(r2.body.status, 'NOT_PROMOTED');
+  });
+
+  it('36. Finalized promotions stay immutable for both roles and no extra audit event is written', async () => {
+    for (const status of ['PROMOTED', 'NOT_PROMOTED', 'AUTOMATIC'] as const) {
+      const id = await mkPromotion('65.00', status);
+      for (const token of [teacherAToken, supervisorToken]) {
+        for (const route of decideRoutes(id)) {
+          const r = await postDecision(route, token, { decision: 'REPEAT' });
+          assert.equal(r.status, 400, `${status} ${route}`);
+          assert.equal(r.code, 'INVALID_INPUT', `${status} ${route}`);
+        }
+      }
+      const [row] = await db.select().from(promotions).where(eq(promotions.id, id));
+      assert.equal(row.status, status);
+      assert.equal(row.decision, null);
+      assert.equal(await auditCount(id), 0);
+    }
+  });
+
+  it('37. A second and a concurrent decision cannot create a second successful decision or audit event', async () => {
+    const sequential = await mkPromotion('64.00');
+    const first = await postDecision(decideRoutes(sequential)[0], teacherAToken, { decision: 'PROMOTE' });
+    const second = await postDecision(decideRoutes(sequential)[1], supervisorToken, { decision: 'REPEAT' });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 400);
+    assert.equal(await auditCount(sequential), 1);
+    const [seqRow] = await db.select().from(promotions).where(eq(promotions.id, sequential));
+    assert.equal(seqRow.decision, 'PROMOTE');
+
+    const racing = await mkPromotion('64.00');
+    const results = await Promise.all([
+      postDecision(decideRoutes(racing)[0], teacherAToken, { decision: 'PROMOTE' }),
+      postDecision(decideRoutes(racing)[1], supervisorToken, { decision: 'REPEAT' }),
+      postDecision(decideRoutes(racing)[0], teacherAToken, { decision: 'DO_NOT_PROMOTE' }),
+    ]);
+    const statuses = results.map((r) => r.status).sort();
+    assert.deepEqual(statuses, [200, 400, 400]);
+    assert.equal(await auditCount(racing), 1);
+    const [raceRow] = await db.select().from(promotions).where(eq(promotions.id, racing));
+    assert.notEqual(raceRow.decision, null);
+    assert.equal(raceRow.status === 'PROMOTED' || raceRow.status === 'NOT_PROMOTED', true);
   });
 });

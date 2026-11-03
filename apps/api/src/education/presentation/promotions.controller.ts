@@ -52,7 +52,7 @@ export class PromotionsController {
   }
 
   @Post(':id/decision')
-  @Roles('SUPERVISOR')
+  @Roles('SUPERVISOR', 'TEACHER')
   @HttpCode(HttpStatus.OK)
   async decide(
     @Param('id') id: string,
@@ -63,7 +63,7 @@ export class PromotionsController {
   }
 
   @Post(':id/decide')
-  @Roles('SUPERVISOR')
+  @Roles('SUPERVISOR', 'TEACHER')
   @HttpCode(HttpStatus.OK)
   async decideAlias(
     @Param('id') id: string,

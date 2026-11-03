@@ -3,7 +3,6 @@ import {
   Inject,
   BadRequestException,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { eq, and, gt, asc, desc } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -40,18 +39,6 @@ export class PromotionService {
     if (scope.kind === 'ALL') return [];
     if (scope.kind === 'NONE') throw forbiddenResource('You do not have permission to access promotions');
     return [eq(classes.teacherId, scope.teacherId)];
-  }
-
-  /**
-   * Helper to verify supervisor access
-   */
-  private assertSupervisor(user: AuthUser) {
-    if (!user.roles.includes('SUPERVISOR')) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Only supervisors can perform this operation',
-      });
-    }
   }
 
   /**
@@ -197,14 +184,19 @@ export class PromotionService {
   }
 
   /**
-   * Supervisor makes a decision on a pending promotion.
+   * Conditional Promotion decision on a pending promotion.
+   * A Supervisor may decide any pending promotion. A teacher may decide only a pending promotion whose exam belongs
+   * to one of their own classes and whose linked score is in [60, 70). Ownership is part of the lookup itself.
    */
   async decidePromotion(
     promotionId: string,
     dto: DecidePromotionDto,
     user: AuthUser,
   ): Promise<PromotionDetailDto> {
-    this.assertSupervisor(user);
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'NONE') {
+      throw forbiddenResource('You do not have permission to decide this promotion');
+    }
 
     const parseResult = DecidePromotionSchema.safeParse(dto || {});
     if (!parseResult.success) {
@@ -220,13 +212,21 @@ export class PromotionService {
       .select({
         promotion: promotions,
         fromBook: books,
+        score: examResults.score,
       })
       .from(promotions)
       .innerJoin(books, eq(promotions.fromBookId, books.id))
-      .where(eq(promotions.id, promotionId))
+      .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
+      .innerJoin(exams, eq(examResults.examId, exams.id))
+      .innerJoin(classes, eq(exams.classId, classes.id))
+      .where(and(eq(promotions.id, promotionId), ...this.teacherScopeConditions(user)))
       .limit(1);
 
     if (!row) {
+      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
+      if (scope.kind !== 'ALL') {
+        throw forbiddenResource('You do not have permission to decide this promotion');
+      }
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Promotion with id ${promotionId} not found`,
@@ -238,6 +238,16 @@ export class PromotionService {
         code: 'INVALID_INPUT',
         message: `Cannot decide an already finalized promotion with status ${row.promotion.status}`,
       });
+    }
+
+    if (scope.kind === 'TEACHER') {
+      const score = parseFloat(row.score);
+      if (!(score >= 60.0 && score < 70.0)) {
+        throw new BadRequestException({
+          code: 'INVALID_INPUT',
+          message: 'This promotion does not require a conditional promotion decision',
+        });
+      }
     }
 
     let newStatus: PromotionStatus;
@@ -268,7 +278,7 @@ export class PromotionService {
 
     const now = new Date();
     await this.db.transaction(async (tx: any) => {
-      await tx
+      const updated = await tx
         .update(promotions)
         .set({
           status: newStatus,
@@ -278,7 +288,16 @@ export class PromotionService {
           decidedAt: now,
           updatedAt: now,
         })
-        .where(eq(promotions.id, promotionId));
+        .where(and(eq(promotions.id, promotionId), eq(promotions.status, 'PENDING_DECISION')))
+        .returning({ id: promotions.id });
+
+      // Lost a race with another decision: nothing was written, so write no audit event either.
+      if (updated.length === 0) {
+        throw new BadRequestException({
+          code: 'INVALID_INPUT',
+          message: 'Cannot decide an already finalized promotion',
+        });
+      }
 
       await tx.insert(auditLogs).values({
         actorAccountId: user.id,
