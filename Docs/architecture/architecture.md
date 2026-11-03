@@ -945,12 +945,12 @@ Promotion Policy
 
 ┌─────────────────────────────┐
 │ Score 60–69                 │
-│ Supervisor Decision         │
+│ Teacher/Supervisor Decision │
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
 │ Score < 60                  │
-│ Supervisor Decision         │
+│ NOT_PROMOTED (provisional)  │
 └─────────────────────────────┘
 ```
 

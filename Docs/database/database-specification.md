@@ -1039,6 +1039,10 @@ OTHER
 
 An Exam belongs to a Class.
 
+Product rule (decision D5): the final exam of a Class in an academic term is the exam of type `FINAL`, and each Class has exactly one final exam per academic term. A `MIDTERM` exam is optional and is for progress assessment; it does not trigger level promotion. Only the Class's single `FINAL` exam determines progression, subject to all existing promotion conditions. Postponing the final exam changes its date and does not create a new final exam.
+
+> **Schema gap:** the current definition stores `type` but defines no uniqueness constraint on `FINAL` per Class, so this rule is not enforced by the schema. No field or constraint is defined here (`Docs/product/mvp-scope.md`, D5).
+
 ---
 
 # 29. Exam Results
@@ -1075,6 +1079,19 @@ Score constraint:
 The Student must be appropriately enrolled in the Class associated with the Exam.
 
 Changing a score after promotion processing has occurred is a sensitive operation.
+
+## 29.1 Required Persistence Behavior (decision D5)
+
+The fields and constraints above do not yet express the rules confirmed in decision D5 (`Docs/product/mvp-scope.md`; `Docs/business/business-rules.md` §17.4–§17.9). In the current definition, `score` is the only outcome field and always holds a number from 0 to 100. This section states what the persisted data must support and does not define table names, column names or statuses.
+
+- An explicit `ABSENT` outcome must be representable and distinguishable from a score of zero.
+- There is still one current result per Student per Exam (`UNIQUE(exam_id, student_id)`). Corrections and make-up results are revisions of that result, not additional rows for the Student.
+- Every correction by a teacher or Supervisor must be stored in an append-only revision history containing: previous score or status, new score or status, a non-empty reason, the actor and the timestamp. Revisions must never be updated or deleted by a later correction.
+- The history of a result must identify when its score came from a make-up exam, so that make-up outcomes can be counted separately from score corrections.
+- Exam-level summaries must be derivable that separate total applicable students, students with numeric scores, absent students, make-up outcomes and the number of score corrections.
+- The exception that lets the teacher of a `COMPLETED` Class enter initial results of that Class's already-created final exam while the term is active relies on the final exam being the Class's exam of type `FINAL` (§28). The schema does not guarantee that a Class has exactly one such exam. How to enforce that is a technical design decision; no field or constraint is defined here.
+- Corrections must be visible to Supervisors in reports and activity and history records, which the revision history must be able to support. No notification storage is required.
+- Exam closure, Class completion (the Class status) and academic-term closure are three separate concepts. Whether a teacher may correct a score depends on the academic term of the Exam's Class and on the teacher being the Class's teacher; it does not depend on exam closure or on Class completion. Exam closure ends teacher date changes only. How exam closure is stored is not defined by the `exams` fields above and is not decided.
 
 ---
 
@@ -1127,13 +1144,15 @@ REMEDIAL
 
 Rules:
 
-- A Promotion must reference the Exam Result that caused it.
+- A Promotion must reference the Exam Result that caused it. Only a result of a Class's `FINAL` exam may cause a Promotion (decision D5); a `MIDTERM` result does not.
 - Promotion processing must be idempotent.
-- Supervisor decisions must be auditable.
+- Teacher and Supervisor decisions must be auditable.
 - Terminal completion must be represented as a valid state.
+- A score below 60 results in the existing status `NOT_PROMOTED`, not `PENDING_DECISION` (provisional policy, decision D5).
 - Promotion history must not be destroyed.
+- A promotion invalidated by a score correction must remain in history together with a promotion-revocation event (timestamp and audit information) and the re-evaluation that follows it (decision D5). How the revocation event is persisted is a technical design decision: the statuses above contain no revoked status, and none is defined here.
 
-The exact database uniqueness strategy for Promotion must guarantee that the same Exam Result is not processed into conflicting Promotion records.
+The exact database uniqueness strategy for Promotion must guarantee that the same Exam Result is not processed into conflicting Promotion records. That guarantee concerns conflicting current outcomes and repeated processing of the same result revision; it must not prevent preserving a superseded promotion and its revocation event as history after a score correction (decision D5).
 
 ---
 
@@ -1982,9 +2001,9 @@ ExamResult
 Promotion
 ```
 
-The same Exam Result must not accidentally produce multiple conflicting Promotion outcomes.
+The same Exam Result must not accidentally produce multiple conflicting Promotion outcomes. Superseded outcomes preserved as history after a score correction are not conflicting outcomes; only one outcome is current at a time (decision D5).
 
-Automatic promotion must remain distinguishable from Supervisor-decided promotion.
+Automatic promotion must remain distinguishable from teacher- or Supervisor-decided promotion.
 
 Terminal completion must be representable without requiring `to_book_id`.
 

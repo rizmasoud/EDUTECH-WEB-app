@@ -833,7 +833,19 @@ POST  /exams/{examId}/results
 PATCH /exam-results/{id}
 ```
 
-Saving a valid result may trigger Promotion processing.
+Saving a valid result of the Class's `FINAL` exam may trigger Promotion processing. A result of any other exam type (`MIDTERM`, `OTHER`) does not (decision D5; the current implementation does not yet enforce this).
+
+## 33.1 Required Behavior (decision D5)
+
+The rules below come from decision D5 (`Docs/product/mvp-scope.md`) and are described in `Docs/business/business-rules.md` §17.4–§17.9. They are confirmed requirements that the endpoint and schema definitions above do not yet express and the current implementation does not yet satisfy. No new endpoint, field name or status is defined here.
+
+- **Outcomes.** Result entry accepts a numeric score or an explicit `ABSENT` outcome. `ABSENT` is never sent or stored as a score of zero. An exam's initial result entry is complete only when every applicable student has an outcome.
+- **Make-up result.** A numeric make-up result replaces an `ABSENT` outcome on the existing result. It is identified as a make-up in the result history and is counted separately from score corrections.
+- **Corrections.** `PATCH /exam-results/{id}` is a correction of the existing result, not a new result. A non-empty reason is required. The teacher of the result's Class may correct it without prior Supervisor approval whether the exam is open or closed and whether the Class is active or `COMPLETED`, as long as the academic term is active; once the term is fully closed, only a Supervisor may correct. A Supervisor may correct in all states. Each correction appends to the revision history (previous and new score or status, reason, actor, timestamp), never overwrites or deletes an earlier revision, and triggers promotion re-evaluation.
+- **Final exam.** The final exam of a Class in an academic term is the exam of type `FINAL`; each Class has exactly one per academic term, and a `MIDTERM` exam is optional. A `MIDTERM` exam is for progress assessment and does not trigger level promotion; only the Class's `FINAL` exam determines progression, subject to all existing promotion conditions. Postponing the final exam is a date change (`PATCH /exams/{id}`) of the same exam, not a new exam. The current schema does not enforce one `FINAL` exam per Class; no new endpoint, field or constraint is defined here.
+- **Creating exams and initial results (temporary restriction, with one exception).** Once a Class is `COMPLETED`, its teacher may not create an exam (`POST` of an exam). The teacher of a `COMPLETED` Class may still enter the initial results of that Class's already-created final exam (type `FINAL`) while the academic term is active (initial results of `MIDTERM` or `OTHER` exams of a `COMPLETED` Class may not be entered by the teacher); once the term is fully closed, no teacher may create exams or enter initial results. Supervisors retain their existing broader access. Corrections are not affected. No new endpoint, field or status is defined for the exception.
+- **Exam date.** `PATCH /exams/{id}` may change the exam date for a teacher only until the exam event is closed. A Supervisor's ability to change the date after closure is not decided.
+- **Supervisor review.** Corrections must be visible to Supervisors in reports and in activity and history records: Supervisors can read the revision history and the reasons, and exam-level summaries that separate total applicable students, students with numeric scores, absent students, make-up outcomes and the number of score corrections. The endpoints and response schemas for these reads are not yet specified. A separate Supervisor notification is not required, and no notification endpoint or event is defined.
 
 ---
 
@@ -874,6 +886,8 @@ REMEDIAL
 ```
 
 The backend must validate whether the requested decision is valid for the Promotion's current state.
+
+A pending decision in the Conditional range (scores 60–69) may be made by the Class's teacher or the Supervisor (decision D5). A score below 60 results in `NOT_PROMOTED` with no pending decision and no automatic Supervisor decision task or notification; a teacher cannot grant an exception, and a possible future exception would need an explicit product-owner decision and Supervisor authority (provisional policy). A student with an `ABSENT` outcome has no promotion processing until a numeric make-up result exists. Every score correction triggers promotion re-evaluation. When a correction invalidates a previous promotion, the original promotion is kept in history with a revocation event and, for a corrected score in the Conditional range, the current state becomes Conditional (pending decision). How the revocation event is represented is not yet specified. The current implementation allows only the Supervisor to decide.
 
 ---
 
@@ -1507,7 +1521,7 @@ The following workflows should have integration/API tests:
 5. Create Session → record Attendance
 6. Create Lesson Plan → submit → approve
 7. Enter ExamResult → automatic Promotion
-8. Enter conditional ExamResult → Supervisor decision
+8. Enter conditional ExamResult → teacher or Supervisor decision
 9. Create Substitution → broadcast → response → approval
 10. Create Ticket → message → resolve
 11. Calculate Payroll → review → finalize
@@ -1582,7 +1596,13 @@ Automatic Promotion
 For 60–69:
 
 ```text
-Pending Supervisor Decision
+Pending decision (Class teacher or Supervisor)
+```
+
+For <60:
+
+```text
+NOT_PROMOTED (provisional policy, no pending decision)
 ```
 
 ### 10. Calculate Payroll

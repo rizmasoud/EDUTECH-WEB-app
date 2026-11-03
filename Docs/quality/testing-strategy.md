@@ -126,7 +126,7 @@ No Supervisor approval required
 Expected:
 
 ```text
-Pending Supervisor decision
+Pending decision (teacher or Supervisor)
 ```
 
 ### Score < 60
@@ -134,7 +134,9 @@ Pending Supervisor decision
 Expected:
 
 ```text
-Pending Supervisor decision
+NOT_PROMOTED (provisional policy)
+No pending decision
+No automatic Supervisor task or notification
 ```
 
 ### Terminal Book

@@ -102,8 +102,11 @@ The Teacher can:
 - Create and manage permitted tickets
 - View their own notifications
 - View relevant payroll information according to the authorization policy
+- Correct existing exam scores of their own classes with a recorded reason, while the academic term is active (§22)
+- Change the date of an exam of their class until the exam is closed (§22)
+- Decide the promotion of their students whose score is in the Conditional range (§23)
 
-Teachers must not be able to bypass Supervisor-controlled workflows or modify protected historical records.
+Teachers must not be able to bypass Supervisor-controlled workflows or modify protected historical records, except for the exam score corrections described in §22, which keep a full revision history.
 
 ---
 
@@ -599,6 +602,8 @@ Exam types include:
 - `MIDTERM`
 - `OTHER`
 
+The final exam of a Class in an academic term is the exam whose type is `FINAL`. Each Class has exactly one final exam per academic term, and a `MIDTERM` exam is optional: a Class may or may not have one. A `MIDTERM` exam is for progress assessment and does not trigger level promotion. Only the Class's single `FINAL` exam determines whether the student progresses to the next level, subject to all existing promotion eligibility conditions. Postponing the final exam by several days or a week changes the date of the same exam; it does not create a new final exam. The detailed rule is in `Docs/business/business-rules.md` §17.1.
+
 Exam Results belong to an Exam and Student.
 
 Scores must be between 0 and 100.
@@ -607,11 +612,21 @@ A student must be appropriately enrolled in the Class before receiving a result.
 
 Each student should have at most one result per Exam.
 
+Every student in the exam's applicable roster must have an outcome: a numeric score or an explicit `ABSENT` status. Absence is never recorded as a score of zero. A student who was absent receives a numeric score through a make-up exam, which follows the same scoring and promotion rules and is identified as a make-up in the result history.
+
+The teacher of the relevant Class may correct an existing score of that Class's exam, without Supervisor approval, whether the exam is open or closed and whether the Class is active or `COMPLETED`, as long as the academic term is active. Once the academic term is fully closed, teachers cannot directly correct scores. A Supervisor may correct any result in all of these states. A teacher cannot correct another teacher's Class. Exam closure, class completion and academic-term closure are three separate concepts. Every correction needs a non-empty reason and is kept in an append-only revision history (previous and new score or status, reason, actor, timestamp), and corrections are visible to Supervisors in reports and activity and history records, with their reasons. A separate Supervisor notification is not required. Corrections are revisions of existing results, not additional students or results. Make-up results replacing `ABSENT` are counted separately from score corrections.
+
+Once a Class is `COMPLETED`, its teacher cannot create a new exam (temporary restriction). The teacher of a `COMPLETED` Class may still enter the initial results of that Class's already-created final exam (type `FINAL`) while the academic term is active, so that a final exam held after the regular sessions can be completed; this does not extend to creating other exams or entering initial results for `MIDTERM` or `OTHER` exams. Once the academic term is fully closed, the teacher can neither create exams nor enter initial results. None of this limits score corrections. Supervisors retain their existing broader access.
+
+A teacher may change an exam's date until the exam event is closed, and not afterwards.
+
+The detailed rules are in `Docs/business/business-rules.md` §17.4–§17.9. They are confirmed requirements (decision D5, `Docs/product/mvp-scope.md`) and are not yet implemented.
+
 ---
 
 ## 23. Promotion
 
-Promotion represents the educational transition decision resulting from an Exam Result.
+Promotion represents the educational transition decision resulting from the Exam Result of a Class's final exam. A `MIDTERM` result does not trigger promotion.
 
 The default promotion rules are:
 
@@ -623,9 +638,9 @@ Supervisor approval is not required.
 
 ### Score 60–69
 
-The result requires a Supervisor decision.
+The result requires a decision by the Class's teacher or the Supervisor.
 
-The Supervisor may choose an appropriate outcome such as:
+The deciding teacher or Supervisor may choose an appropriate outcome such as:
 
 - Promote
 - Do not promote
@@ -633,20 +648,21 @@ The Supervisor may choose an appropriate outcome such as:
 
 ### Score below 60
 
-The result requires a Supervisor decision.
+The score does not qualify for promotion. The Promotion status is `NOT_PROMOTED`.
 
-Possible decisions may include:
+It does not create a pending decision, and it does not automatically create a Supervisor decision task or notification.
 
-- Repeat
-- Remedial
-- Do not continue
-- Other explicitly supported decision
+A teacher cannot grant an exception, and no Repeat or Remedial pathway is currently approved for below-60 results. A possible future exception would require a separate explicit product-owner decision and Supervisor authority; none is approved. This is a provisional policy, subject to future product-owner review.
+
+### Absent
+
+A student with an `ABSENT` outcome is not promoted until a numeric make-up result exists.
 
 Promotion decisions must be auditable.
 
 Promotion processing must be idempotent.
 
-Changing an exam score after promotion has occurred is a sensitive operation and must trigger controlled re-evaluation and auditing.
+Changing an exam score after promotion has occurred is a sensitive operation and must trigger controlled re-evaluation and auditing. Every score correction triggers promotion re-evaluation against all existing promotion conditions. If a correction invalidates a previous promotion, the original promotion is preserved in history with a revocation event, and a corrected score in the 60–69 range makes the student's current state Conditional (pending decision), without deleting enrollment, attendance or class history (`Docs/business/business-rules.md` §18.4).
 
 ---
 

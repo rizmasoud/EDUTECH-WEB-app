@@ -137,11 +137,13 @@ Confirm the desired account relationship and login workflow before implementing 
 
 ### BR-TEACH-003 — Teacher Corrections
 
-**Status:** Needs clarification.
+**Status:** Confirmed for exam scores (Decision D5); needs clarification for all other teacher-recorded information.
 
 Determine which teacher-recorded information can be edited directly and which corrections require a ticket or supervisor approval.
 
 Preserve an appropriate history of important changes.
+
+> **Decision D5:** The teacher of the relevant Class may directly correct an existing exam score, whether the exam is open or closed and whether the Class is active or `COMPLETED`, as long as the academic term is active, without Supervisor approval. Once the academic term is fully closed, teachers cannot directly correct scores; Supervisors can in all states. A non-empty reason is required and every correction by a teacher or Supervisor is kept in an append-only revision history. See `Docs/product/mvp-scope.md` and `Docs/business/business-rules.md` §17.6. This does not decide corrections of other teacher-recorded data.
 
 ## 8. Attendance and Compensation
 
@@ -191,11 +193,13 @@ The application must support the approved end-of-term student outcomes, includin
 
 ### BR-PROMO-002 — Promotion Decisions
 
-**Status:** Needs clarification.
+**Status:** Confirmed for exam-based promotion (Decision D5); batch promotion needs clarification.
 
 Confirm which outcomes trigger automatic promotion and which require a supervisor decision.
 
 Any batch-promotion workflow must preserve the ability to identify and review individual decisions when necessary.
+
+> **Decision D5:** A score of 70 or above promotes automatically when all other existing promotion conditions are met. A result in the Conditional range needs a decision by the Class's teacher or the Supervisor. A score below 60 results in `NOT_PROMOTED` with no pending decision; a teacher cannot grant an exception, and a possible future exception would need an explicit product-owner decision and Supervisor authority (provisional policy, subject to future product-owner review). Only the final exam (type `FINAL`, one per Class per academic term) determines progression; an optional `MIDTERM` exam does not trigger promotion. A student with an `ABSENT` outcome is not promoted until a numeric make-up result exists. Every score correction triggers promotion re-evaluation; an invalidated promotion is preserved in history together with a revocation event. Thresholds are unchanged. See `Docs/business/business-rules.md` §18.
 
 ### BR-PROMO-003 — Missing Next Level
 
@@ -275,7 +279,7 @@ For each item, record:
 
 Do not create a new rule merely to fill a documentation gap.
 
-Approved scope decisions D1–D4 (2026-10-28) are recorded in `Docs/product/mvp-scope.md`, which is the authoritative scope document. Rules affected: BR-STU-001 (D1), BR-TEACH-001 and BR-SEC-001 (D2). The six-month student inactivity rule is not approved (D4).
+Approved scope decisions D1–D4 (2026-10-28) are recorded in `Docs/product/mvp-scope.md`, which is the authoritative scope document. Rules affected: BR-STU-001 (D1), BR-TEACH-001 and BR-SEC-001 (D2). The six-month student inactivity rule is not approved (D4). Decision D5 on exam results, make-up exams, score corrections and promotion re-evaluation is also recorded there and affects BR-TEACH-003 and BR-PROMO-002.
 
 ## 15. Maintenance
 

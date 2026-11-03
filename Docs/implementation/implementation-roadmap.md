@@ -419,12 +419,12 @@ Score >= 70
 
 ```text
 60–69
-    → Supervisor Decision Required
+    → Teacher or Supervisor Decision Required
 ```
 
 ```text
 < 60
-    → Supervisor Decision Required
+    → NOT_PROMOTED (provisional policy, no pending decision)
 ```
 
 Terminal Books must produce:
