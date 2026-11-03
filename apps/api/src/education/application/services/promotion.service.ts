@@ -10,7 +10,7 @@ import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import { promotions, exams, examResults } from '../../../infrastructure/database/schema/education.schema';
-import { classes } from '../../../infrastructure/database/schema/classes.schema';
+import { classes, enrollments } from '../../../infrastructure/database/schema/classes.schema';
 import { books } from '../../../infrastructure/database/schema/academics.schema';
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
@@ -62,18 +62,7 @@ export class PromotionService {
     examResultId: string,
     user: AuthUser,
   ): Promise<PromotionDetailDto> {
-    // 1. Idempotency Check: if promotion already exists, return existing
-    const [existing] = await this.db
-      .select({ id: promotions.id })
-      .from(promotions)
-      .where(eq(promotions.examResultId, examResultId))
-      .limit(1);
-
-    if (existing) {
-      return this.getPromotion(existing.id, user);
-    }
-
-    // 2. Lookup ExamResult with Exam, Class, and Book
+    // 1. Lookup ExamResult with Exam, Class, and Book
     const [row] = await this.db
       .select({
         examResult: examResults,
@@ -88,6 +77,13 @@ export class PromotionService {
       .where(eq(examResults.id, examResultId))
       .limit(1);
 
+    // 2. Authorization Check (shared teacher data-access pattern). It runs BEFORE the 404 and BEFORE the
+    // idempotency lookup, so a teacher gets the same 403 for a missing result and for another teacher's result,
+    // and an existing promotion is never returned to a caller who may not access its result.
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'NONE' || (scope.kind === 'TEACHER' && row?.cls.teacherId !== scope.teacherId)) {
+      throw forbiddenResource('You do not have permission to process promotion for this exam result');
+    }
     if (!row) {
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
@@ -95,18 +91,15 @@ export class PromotionService {
       });
     }
 
-    // 3. Authorization Check
-    const isSupervisor = user.roles.includes('SUPERVISOR');
-    const isAssignedTeacher =
-      user.roles.includes('TEACHER') &&
-      Boolean(user.teacherId) &&
-      row.cls.teacherId === user.teacherId;
+    // 3. Idempotency Check: if promotion already exists, return existing (the caller is already authorized)
+    const [existing] = await this.db
+      .select({ id: promotions.id })
+      .from(promotions)
+      .where(eq(promotions.examResultId, examResultId))
+      .limit(1);
 
-    if (!isSupervisor && !isAssignedTeacher) {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'You do not have permission to process promotion for this exam result',
-      });
+    if (existing) {
+      return this.getPromotion(existing.id, user);
     }
 
     // 4. Resolve Data
@@ -464,26 +457,46 @@ export class PromotionService {
   }
 
   /**
-   * List promotions for a specific student
+   * List promotions for a specific student.
+   * A teacher may list a student's promotions only if the student is in the teacher's authorized scope: enrolled
+   * (any enrollment status, so historical records stay readable) in a class the teacher teaches. A student who does
+   * not exist and a student outside that scope get the same 403, so ids cannot be probed; an in-scope student with
+   * no promotions gets 200 with an empty list. A supervisor is unrestricted and gets a 404 for a missing student.
    */
   async listPromotionsForStudent(
     studentId: string,
     user: AuthUser,
   ): Promise<PromotionDetailDto[]> {
-    const [student] = await this.db
-      .select({ id: students.id })
-      .from(students)
-      .where(eq(students.id, studentId))
-      .limit(1);
+    const scope = resolveDataScope(user);
 
-    if (!student) {
-      if (resolveDataScope(user).kind !== 'ALL') {
+    if (scope.kind === 'NONE') {
+      throw forbiddenResource('You do not have permission to access this student');
+    }
+
+    if (scope.kind === 'TEACHER') {
+      const [link] = await this.db
+        .select({ id: enrollments.id })
+        .from(enrollments)
+        .innerJoin(classes, eq(enrollments.classId, classes.id))
+        .where(and(eq(enrollments.studentId, studentId), eq(classes.teacherId, scope.teacherId)))
+        .limit(1);
+
+      if (!link) {
         throw forbiddenResource('You do not have permission to access this student');
       }
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Student with id ${studentId} not found`,
-      });
+    } else {
+      const [student] = await this.db
+        .select({ id: students.id })
+        .from(students)
+        .where(eq(students.id, studentId))
+        .limit(1);
+
+      if (!student) {
+        throw new NotFoundException({
+          code: 'RESOURCE_NOT_FOUND',
+          message: `Student with id ${studentId} not found`,
+        });
+      }
     }
 
     return this.listPromotions({ studentId }, user);

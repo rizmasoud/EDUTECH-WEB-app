@@ -3,7 +3,6 @@ import {
   Inject,
   BadRequestException,
   NotFoundException,
-  ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
 import { eq, and, desc, sql } from 'drizzle-orm';
@@ -12,6 +11,7 @@ import { classes, enrollments } from '../../../infrastructure/database/schema/cl
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { exams, examResults } from '../../../infrastructure/database/schema/education.schema';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
+import { resolveDataScope, forbiddenResource } from '../../../auth/presentation/policies/teacher-data-scope';
 import {
   CreateExamSchema,
   UpdateExamSchema,
@@ -37,22 +37,44 @@ export class ExamService {
   ) {}
 
   /**
-   * Helper to verify user permissions for a class
+   * Shared teacher data-access rule for every exam and exam-result path (same pattern as classes, enrollments
+   * and students): a supervisor is unrestricted; a teacher may only act on exams of their own classes; any other
+   * account gets nothing. For a teacher "not yours" and "does not exist" are the same 403, decided BEFORE any
+   * 404, so ids cannot be probed. Only a supervisor ever receives the resource-specific 404.
+   * Read access to a teacher's own historical (non-current) classes is intentionally not restricted here.
    */
-  private assertClassAccess(classRecord: any, user: AuthUser) {
-    if (user.roles.includes('SUPERVISOR')) {
-      return;
+  private authorizeClass(
+    cls: { teacherId: string | null } | undefined,
+    user: AuthUser,
+    notFound: () => NotFoundException,
+  ): void {
+    const scope = resolveDataScope(user);
+    if (scope.kind === 'NONE' || (scope.kind === 'TEACHER' && cls?.teacherId !== scope.teacherId)) {
+      throw forbiddenResource('You do not have permission to access exams for this class');
     }
-
-    if (user.roles.includes('TEACHER')) {
-      if (user.teacherId && classRecord.teacherId === user.teacherId) {
-        return;
-      }
+    if (!cls) {
+      throw notFound();
     }
+  }
 
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: 'You do not have permission to access exams for this class',
+  private classNotFound(classId: string): NotFoundException {
+    return new NotFoundException({
+      code: 'RESOURCE_NOT_FOUND',
+      message: `Class with id ${classId} not found`,
+    });
+  }
+
+  private examNotFound(examId: string): NotFoundException {
+    return new NotFoundException({
+      code: 'RESOURCE_NOT_FOUND',
+      message: `Exam with id ${examId} not found`,
+    });
+  }
+
+  private examResultNotFound(resultId: string): NotFoundException {
+    return new NotFoundException({
+      code: 'RESOURCE_NOT_FOUND',
+      message: `Exam result with id ${resultId} not found`,
     });
   }
 
@@ -70,14 +92,7 @@ export class ExamService {
       .where(eq(classes.id, classId))
       .limit(1);
 
-    if (!cls) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Class with id ${classId} not found`,
-      });
-    }
-
-    this.assertClassAccess(cls, user);
+    this.authorizeClass(cls, user, () => this.classNotFound(classId));
 
     const parseResult = CreateExamSchema.safeParse(dto || {});
     if (!parseResult.success) {
@@ -130,14 +145,7 @@ export class ExamService {
       .where(eq(classes.id, classId))
       .limit(1);
 
-    if (!cls) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Class with id ${classId} not found`,
-      });
-    }
-
-    this.assertClassAccess(cls, user);
+    this.authorizeClass(cls, user, () => this.classNotFound(classId));
 
     const examList = await this.db
       .select()
@@ -189,14 +197,7 @@ export class ExamService {
       .where(eq(exams.id, id))
       .limit(1);
 
-    if (!row) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Exam with id ${id} not found`,
-      });
-    }
-
-    this.assertClassAccess(row.cls, user);
+    this.authorizeClass(row?.cls, user, () => this.examNotFound(id));
 
     const [countRow] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -241,14 +242,7 @@ export class ExamService {
       .where(eq(exams.id, id))
       .limit(1);
 
-    if (!row) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Exam with id ${id} not found`,
-      });
-    }
-
-    this.assertClassAccess(row.cls, user);
+    this.authorizeClass(row?.cls, user, () => this.examNotFound(id));
 
     const parseResult = UpdateExamSchema.safeParse(dto || {});
     if (!parseResult.success) {
@@ -305,14 +299,7 @@ export class ExamService {
       .where(eq(exams.id, examId))
       .limit(1);
 
-    if (!examRow) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Exam with id ${examId} not found`,
-      });
-    }
-
-    this.assertClassAccess(examRow.cls, user);
+    this.authorizeClass(examRow?.cls, user, () => this.examNotFound(examId));
 
     const rows = await this.db
       .select({
@@ -361,14 +348,7 @@ export class ExamService {
       .where(eq(exams.id, examId))
       .limit(1);
 
-    if (!examRow) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Exam with id ${examId} not found`,
-      });
-    }
-
-    this.assertClassAccess(examRow.cls, user);
+    this.authorizeClass(examRow?.cls, user, () => this.examNotFound(examId));
 
     const parseResult = CreateExamResultSchema.safeParse(dto || {});
     if (!parseResult.success) {
@@ -389,7 +369,10 @@ export class ExamService {
       .where(eq(students.id, data.studentId))
       .limit(1);
 
-    if (!student) {
+    // A supervisor still gets the specific 404. A teacher must not learn whether an unrelated student id exists,
+    // so a missing student falls through to the enrollment check below and gets the same 400 as an existing
+    // student who is not enrolled in this class.
+    if (!student && resolveDataScope(user).kind === 'ALL') {
       throw new NotFoundException({
         code: 'RESOURCE_NOT_FOUND',
         message: `Student with id ${data.studentId} not found`,
@@ -506,14 +489,7 @@ export class ExamService {
       .where(eq(examResults.id, id))
       .limit(1);
 
-    if (!row) {
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Exam result with id ${id} not found`,
-      });
-    }
-
-    this.assertClassAccess(row.cls, user);
+    this.authorizeClass(row?.cls, user, () => this.examResultNotFound(id));
 
     const parseResult = UpdateExamResultSchema.safeParse(dto || {});
     if (!parseResult.success) {
