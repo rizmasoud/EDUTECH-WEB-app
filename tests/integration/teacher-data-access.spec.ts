@@ -751,7 +751,18 @@ describe('Teacher data access is enforced by the backend', () => {
       assert.equal((await json(`/promotions/${a.promotion}`, teacherA)).status, 200);
       assert.equal((await json(`/promotions/${b.promotion}`, teacherA)).status, 403);
       assert.equal((await json(`/promotions?studentId=${studentOnlyB}`, teacherA)).body.length, 0);
-      assert.equal((await json(`/students/${studentOnlyB}/promotions`, teacherA)).body.length, 0);
+      // Another teacher's student is outside the scope: same 403 FORBIDDEN_RESOURCE as a student that does not exist.
+      const outOfScope = await json(`/students/${studentOnlyB}/promotions`, teacherA);
+      const missingStudent = await json(`/students/00000000-0000-4000-8000-000000000000/promotions`, teacherA);
+      assert.equal(outOfScope.status, 403);
+      assert.equal(outOfScope.body.error.code, 'FORBIDDEN_RESOURCE');
+      assert.equal(missingStudent.status, 403);
+      assert.equal(missingStudent.body.error.code, 'FORBIDDEN_RESOURCE');
+      assert.equal(missingStudent.body.error.message, outOfScope.body.error.message);
+      // An in-scope student keeps 200 (here: the student of teacher A with its one promotion)
+      const inScope = await json(`/students/${studentOnlyA}/promotions`, teacherA);
+      assert.equal(inScope.status, 200);
+      assert.deepEqual(ids(inScope.body), [a.promotion]);
       assert.equal((await json('/promotions', supervisor)).body.length >= 2, true);
       assert.equal((await json(`/promotions/${b.promotion}`, supervisor)).status, 200);
 
@@ -759,6 +770,76 @@ describe('Teacher data access is enforced by the backend', () => {
       assert.equal((await json(`/exams/${b.exam}`, teacherA)).status, 403);
       assert.equal((await json(`/exams/${b.exam}/results`, teacherA)).status, 403);
       assert.equal((await json(`/exams/${b.exam}`, supervisor)).status, 200);
+    });
+
+    it('exam and promotion ids cannot be probed: a teacher gets the same 403 FORBIDDEN_RESOURCE for foreign and missing ids', async () => {
+      const MISSING = '00000000-0000-4000-8000-000000000000';
+      const [ex] = await db().insert(exams).values({ classId: classB1, examDate: '2026-11-02', type: 'FINAL' }).returning();
+      const [er] = await db().insert(examResults).values({ examId: ex.id, studentId: studentOnlyB, score: '80.00' }).returning();
+      const [pr] = await db()
+        .insert(promotions)
+        .values({ studentId: studentOnlyB, fromBookId: bookId, examResultId: er.id, status: 'PENDING_DECISION' })
+        .returning();
+
+      const pairs: Array<[string, string]> = [
+        [`/exams/${ex.id}`, `/exams/${MISSING}`],
+        [`/exams/${ex.id}/results`, `/exams/${MISSING}/results`],
+        [`/promotions/${pr.id}`, `/promotions/${MISSING}`],
+        [`/students/${studentOnlyB}/promotions`, `/students/${MISSING}/promotions`],
+      ];
+      for (const [foreignPath, missingPath] of pairs) {
+        const foreign = await json(foreignPath, teacherA);
+        const missing = await json(missingPath, teacherA);
+        assert.equal(foreign.status, 403, foreignPath);
+        assert.equal(foreign.body.error.code, 'FORBIDDEN_RESOURCE', foreignPath);
+        assert.equal(missing.status, 403, missingPath);
+        assert.equal(missing.body.error.code, 'FORBIDDEN_RESOURCE', missingPath);
+        assert.equal(missing.body.error.message, foreign.body.error.message, missingPath);
+      }
+
+      // The supervisor stays unrestricted and still sees the specific 404 for missing ids
+      assert.equal((await json(`/exams/${ex.id}`, supervisor)).status, 200);
+      assert.equal((await json(`/exams/${MISSING}`, supervisor)).status, 404);
+      assert.equal((await json(`/promotions/${MISSING}`, supervisor)).status, 404);
+      assert.equal((await json(`/students/${MISSING}/promotions`, supervisor)).status, 404);
+    });
+
+    it('a teacher account with no linked teacher record gets 403 on exam and promotion reads', async () => {
+      const MISSING = '00000000-0000-4000-8000-000000000000';
+      const [ex] = await db().insert(exams).values({ classId: classA1, examDate: '2026-11-03', type: 'FINAL' }).returning();
+      for (const path of [
+        '/promotions',
+        `/promotions/${MISSING}`,
+        `/students/${studentOnlyA}/promotions`,
+        `/students/${MISSING}/promotions`,
+        `/exams/${ex.id}`,
+        `/exams/${ex.id}/results`,
+        `/exams/${MISSING}`,
+      ]) {
+        const res = await json(path, orphanTeacher);
+        assert.equal(res.status, 403, path);
+        assert.equal(res.body.error.code, 'FORBIDDEN_RESOURCE', path);
+      }
+    });
+
+    it('a teacher keeps historical read access to exams and promotions of their own COMPLETED class', async () => {
+      const completed = await mkClass(teacherAId, 'COMPLETED');
+      const st = await mkStudent('HistoricalStudent');
+      await enrollIn(completed, st);
+      const [ex] = await db().insert(exams).values({ classId: completed, examDate: '2026-05-01', type: 'FINAL' }).returning();
+      const [er] = await db().insert(examResults).values({ examId: ex.id, studentId: st, score: '75.00' }).returning();
+      const [pr] = await db()
+        .insert(promotions)
+        .values({ studentId: st, fromBookId: bookId, examResultId: er.id, status: 'PENDING_DECISION' })
+        .returning();
+
+      assert.equal((await json(`/exams/${ex.id}`, teacherA)).status, 200);
+      assert.equal((await json(`/exams/${ex.id}/results`, teacherA)).status, 200);
+      assert.equal((await json(`/promotions/${pr.id}`, teacherA)).status, 200);
+      assert.equal((await json(`/students/${st}/promotions`, teacherA)).status, 200);
+      // Another teacher is still denied the same records
+      assert.equal((await json(`/exams/${ex.id}`, teacherB)).status, 403);
+      assert.equal((await json(`/promotions/${pr.id}`, teacherB)).status, 403);
     });
   });
 

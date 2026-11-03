@@ -79,6 +79,7 @@ describe('Exams & Assessment Management Integration Tests (Phase 7.3)', () => {
   let supervisorToken: string;
   let teacherAToken: string;
   let teacherBToken: string;
+  let teacherNoRecordToken: string; // TEACHER role but no linked teacher record
 
   let supervisorAccountId: string;
   let teacherAAccountId: string;
@@ -194,6 +195,22 @@ describe('Exams & Assessment Management Integration Tests (Phase 7.3)', () => {
       roleId: tchRole.id,
     });
 
+    // Seed a TEACHER-role account that has no linked teacher record
+    const tNoRecHash = await hasher.hash('TeacherNoRecPass123!');
+    const [tNoRecAccount] = await db
+      .insert(accounts)
+      .values({
+        personnelCode: 'TCH-03',
+        passwordHash: tNoRecHash,
+        isActive: true,
+      })
+      .returning();
+
+    await db.insert(accountRoles).values({
+      accountId: tNoRecAccount.id,
+      roleId: tchRole.id,
+    });
+
     // Seed Academic Term and Book
     const [term] = await db
       .insert(academicTerms)
@@ -297,6 +314,12 @@ describe('Exams & Assessment Management Integration Tests (Phase 7.3)', () => {
       password: 'TeacherBPass123!',
     });
     teacherBToken = tBLogin.rawToken;
+
+    const tNoRecLogin = await authService.login({
+      personnelCode: 'TCH-03',
+      password: 'TeacherNoRecPass123!',
+    });
+    teacherNoRecordToken = tNoRecLogin.rawToken;
 
     app = await NestFactory.create(TestExamsApiModule, { logger: false });
     app.setGlobalPrefix('api/v1');
@@ -760,5 +783,136 @@ describe('Exams & Assessment Management Integration Tests (Phase 7.3)', () => {
     assert.equal(updateResultAudit.metadata.previousStatus, 'CONDITIONAL');
     assert.equal(updateResultAudit.metadata.newStatus, 'PASS');
     assert.equal(updateResultAudit.metadata.newScore, 75);
+  });
+
+  // ==========================================
+  // 9. Teacher data-access pattern (missing vs foreign resources)
+  // ==========================================
+
+  const MISSING_ID = '00000000-0000-4000-8000-000000000000';
+
+  const call = async (
+    method: string,
+    path: string,
+    token: string,
+    body?: unknown,
+  ): Promise<{ status: number; code: string | undefined; message: string | undefined }> => {
+    const res = await fetch(`${baseUrl}/api/v1${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    return { status: res.status, code: json?.error?.code, message: json?.error?.message };
+  };
+
+  // The seven ExamService paths, each addressed by the id of the resource it looks up first.
+  const examAuthPaths = (ids: { classId: string; examId: string; resultId: string }) => [
+    { name: 'createExam', method: 'POST', path: `/classes/${ids.classId}/exams`, body: { examDate: '2026-07-15', type: 'MIDTERM' } },
+    { name: 'listExamsForClass', method: 'GET', path: `/classes/${ids.classId}/exams`, body: undefined },
+    { name: 'getExam', method: 'GET', path: `/exams/${ids.examId}`, body: undefined },
+    { name: 'updateExam', method: 'PATCH', path: `/exams/${ids.examId}`, body: { type: 'MIDTERM' } },
+    { name: 'listResultsForExam', method: 'GET', path: `/exams/${ids.examId}/results`, body: undefined },
+    { name: 'createExamResult', method: 'POST', path: `/exams/${ids.examId}/results`, body: { studentId: student1Id, score: 80 } },
+    { name: 'updateExamResult', method: 'PATCH', path: `/exam-results/${ids.resultId}`, body: { score: 50 } },
+  ];
+
+  it('20. Teacher gets the same 403 FORBIDDEN_RESOURCE for another teacher\'s and a missing resource on all seven exam paths', async () => {
+    const foreign = examAuthPaths({ classId: class1Id, examId: createdExamId, resultId: student4ResultId });
+    const missing = examAuthPaths({ classId: MISSING_ID, examId: MISSING_ID, resultId: MISSING_ID });
+
+    for (let i = 0; i < foreign.length; i++) {
+      const f = await call(foreign[i].method, foreign[i].path, teacherBToken, foreign[i].body);
+      const m = await call(missing[i].method, missing[i].path, teacherBToken, missing[i].body);
+
+      assert.equal(f.status, 403, `${foreign[i].name}: foreign resource`);
+      assert.equal(f.code, 'FORBIDDEN_RESOURCE', `${foreign[i].name}: foreign resource code`);
+      assert.equal(m.status, 403, `${missing[i].name}: missing resource`);
+      assert.equal(m.code, 'FORBIDDEN_RESOURCE', `${missing[i].name}: missing resource code`);
+      assert.equal(m.message, f.message, `${missing[i].name}: identical message (no id echo)`);
+      assert.ok(!String(m.message).includes(MISSING_ID), `${missing[i].name}: message does not echo the id`);
+    }
+  });
+
+  it('21. Supervisor keeps unrestricted access and still gets 404 RESOURCE_NOT_FOUND for missing resources', async () => {
+    const missing = examAuthPaths({ classId: MISSING_ID, examId: MISSING_ID, resultId: MISSING_ID });
+    for (const p of missing) {
+      const r = await call(p.method, p.path, supervisorToken, p.body);
+      assert.equal(r.status, 404, `${p.name}: supervisor missing resource`);
+      assert.equal(r.code, 'RESOURCE_NOT_FOUND', `${p.name}: supervisor missing resource code`);
+    }
+
+    // Reads of another teacher's data stay unrestricted for a supervisor
+    assert.equal((await call('GET', `/classes/${class1Id}/exams`, supervisorToken)).status, 200);
+    assert.equal((await call('GET', `/exams/${createdExamId}`, supervisorToken)).status, 200);
+    assert.equal((await call('GET', `/exams/${createdExamId}/results`, supervisorToken)).status, 200);
+  });
+
+  it('22. A teacher account without a linked teacher record gets 403 FORBIDDEN_RESOURCE on every exam path', async () => {
+    const real = examAuthPaths({ classId: class1Id, examId: createdExamId, resultId: student4ResultId });
+    const missing = examAuthPaths({ classId: MISSING_ID, examId: MISSING_ID, resultId: MISSING_ID });
+
+    for (const p of [...real, ...missing]) {
+      const r = await call(p.method, p.path, teacherNoRecordToken, p.body);
+      assert.equal(r.status, 403, `${p.name} ${p.path}`);
+      assert.equal(r.code, 'FORBIDDEN_RESOURCE', `${p.name} ${p.path} code`);
+    }
+  });
+
+  it('23. Teacher cannot tell a nonexistent student from an existing unenrolled student when creating a result', async () => {
+    const nonexistent = await call('POST', `/exams/${createdExamId}/results`, teacherAToken, {
+      studentId: MISSING_ID,
+      score: 80,
+    });
+    const unenrolled = await call('POST', `/exams/${createdExamId}/results`, teacherAToken, {
+      studentId: unenrolledStudentId,
+      score: 80,
+    });
+    const otherClass = await call('POST', `/exams/${createdExamId}/results`, teacherAToken, {
+      studentId: studentOutsideClassId,
+      score: 80,
+    });
+
+    for (const r of [nonexistent, unenrolled, otherClass]) {
+      assert.equal(r.status, 400);
+      assert.equal(r.code, 'INVALID_INPUT');
+    }
+    assert.equal(nonexistent.message, unenrolled.message);
+    assert.equal(nonexistent.message, otherClass.message);
+    assert.ok(!String(nonexistent.message).includes(MISSING_ID));
+
+    // A supervisor keeps the specific 404 for a student that does not exist
+    const supervisorMissing = await call('POST', `/exams/${createdExamId}/results`, supervisorToken, {
+      studentId: MISSING_ID,
+      score: 80,
+    });
+    assert.equal(supervisorMissing.status, 404);
+    assert.equal(supervisorMissing.code, 'RESOURCE_NOT_FOUND');
+
+    // No result was created for any of the rejected students
+    const created = await db
+      .select()
+      .from(examResults)
+      .where(and(eq(examResults.examId, createdExamId), eq(examResults.studentId, unenrolledStudentId)));
+    assert.equal(created.length, 0);
+  });
+
+  it('24. Owner teacher keeps historical read access to a COMPLETED class, and other teachers stay denied', async () => {
+    await db.update(classes).set({ status: 'COMPLETED' }).where(eq(classes.id, class1Id));
+    try {
+      assert.equal((await call('GET', `/classes/${class1Id}/exams`, teacherAToken)).status, 200);
+      assert.equal((await call('GET', `/exams/${createdExamId}`, teacherAToken)).status, 200);
+      assert.equal((await call('GET', `/exams/${createdExamId}/results`, teacherAToken)).status, 200);
+
+      // Another teacher is still denied on the same class
+      const other = await call('GET', `/exams/${createdExamId}`, teacherBToken);
+      assert.equal(other.status, 403);
+      assert.equal(other.code, 'FORBIDDEN_RESOURCE');
+    } finally {
+      await db.update(classes).set({ status: 'ACTIVE' }).where(eq(classes.id, class1Id));
+    }
   });
 });

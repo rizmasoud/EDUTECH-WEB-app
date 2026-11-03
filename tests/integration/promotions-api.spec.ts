@@ -87,6 +87,7 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
   let supervisorToken: string;
   let teacherAToken: string;
   let teacherBToken: string;
+  let teacherNoRecordToken: string; // TEACHER role but no linked teacher record
 
   let supervisorAccountId: string;
   let teacherAAccountId: string;
@@ -215,6 +216,22 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
 
     await db.insert(accountRoles).values({
       accountId: tBAccount.id,
+      roleId: tchRole.id,
+    });
+
+    // Seed a TEACHER-role account that has no linked teacher record
+    const tNoRecHash = await hasher.hash('TeacherNoRecPass123!');
+    const [tNoRecAccount] = await db
+      .insert(accounts)
+      .values({
+        personnelCode: 'TCH-03',
+        passwordHash: tNoRecHash,
+        isActive: true,
+      })
+      .returning();
+
+    await db.insert(accountRoles).values({
+      accountId: tNoRecAccount.id,
       roleId: tchRole.id,
     });
 
@@ -454,6 +471,12 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     });
     teacherBToken = tBLogin.rawToken;
 
+    const tNoRecLogin = await authService.login({
+      personnelCode: 'TCH-03',
+      password: 'TeacherNoRecPass123!',
+    });
+    teacherNoRecordToken = tNoRecLogin.rawToken;
+
     app = await NestFactory.create(TestPromotionsApiModule, { logger: false });
     app.setGlobalPrefix('api/v1');
     app.useGlobalFilters(new HttpExceptionFilter());
@@ -521,7 +544,7 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     );
     assert.equal(res.status, 403);
     const body = await res.json();
-    assert.equal(body.error.code, 'FORBIDDEN');
+    assert.equal(body.error.code, 'FORBIDDEN_RESOURCE');
   });
 
   // ==========================================
@@ -1008,5 +1031,231 @@ describe('Promotion Management Integration Tests (Phase 7.4)', () => {
     assert.equal(uAudit.metadata.newStatus, 'PROMOTED');
     assert.equal(uAudit.metadata.decision, 'PROMOTE');
     assert.equal(uAudit.metadata.toBookId, book2Id);
+  });
+
+  // ==========================================
+  // 11. Teacher data-access pattern (exam results and student promotions)
+  // ==========================================
+
+  const MISSING_ID = '00000000-0000-4000-8000-000000000000';
+
+  const call = async (
+    method: string,
+    path: string,
+    token: string,
+  ): Promise<{ status: number; code: string | undefined; message: string | undefined; body: any }> => {
+    const res = await fetch(`${baseUrl}/api/v1${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json: any = await res.json().catch(() => ({}));
+    return { status: res.status, code: json?.error?.code, message: json?.error?.message, body: json };
+  };
+
+  // Both promotion-processing routes must behave identically.
+  const processRoutes = (resultId: string) => [
+    `/exam-results/${resultId}/process-promotion`,
+    `/promotions/process/${resultId}`,
+  ];
+
+  const mkStudent = async (firstName: string, classIds: string[] = []): Promise<string> => {
+    const [st] = await db.insert(students).values({ firstName, lastName: 'AuthTest' }).returning();
+    for (const classId of classIds) {
+      await db.insert(enrollments).values({ classId, studentId: st.id, status: 'ACTIVE' });
+    }
+    return st.id as string;
+  };
+
+  it('22. Teacher gets the same 403 FORBIDDEN_RESOURCE for a missing and another teacher\'s exam result on both processing routes', async () => {
+    // A foreign result that has no promotion yet
+    const freshStudentId = await mkStudent('FreshForeign', [class1Id]);
+    const [fresh] = await db
+      .insert(examResults)
+      .values({ examId: exam1Id, studentId: freshStudentId, score: '85.00' })
+      .returning();
+
+    const foreignRoutes = processRoutes(fresh.id);
+    const missingRoutes = processRoutes(MISSING_ID);
+
+    for (let i = 0; i < foreignRoutes.length; i++) {
+      const foreign = await call('POST', foreignRoutes[i], teacherBToken);
+      const missing = await call('POST', missingRoutes[i], teacherBToken);
+
+      assert.equal(foreign.status, 403, foreignRoutes[i]);
+      assert.equal(foreign.code, 'FORBIDDEN_RESOURCE', foreignRoutes[i]);
+      assert.equal(missing.status, 403, missingRoutes[i]);
+      assert.equal(missing.code, 'FORBIDDEN_RESOURCE', missingRoutes[i]);
+      assert.equal(missing.message, foreign.message);
+      assert.ok(!String(missing.message).includes(MISSING_ID));
+    }
+
+    // Nothing was created by the rejected requests
+    const rows = await db.select().from(promotions).where(eq(promotions.examResultId, fresh.id));
+    assert.equal(rows.length, 0);
+  });
+
+  it('23. Authorization runs before an existing promotion can be returned (idempotency stays safe)', async () => {
+    const before = await db.select().from(promotions).where(eq(promotions.examResultId, resultPass85Id));
+    assert.equal(before.length, 1);
+    const auditsBefore = (
+      await db.select().from(auditLogs).where(eq(auditLogs.entityId, promoPass85Id))
+    ).length;
+
+    // Another teacher cannot read the existing promotion through either processing route
+    for (const route of processRoutes(resultPass85Id)) {
+      const r = await call('POST', route, teacherBToken);
+      assert.equal(r.status, 403, route);
+      assert.equal(r.code, 'FORBIDDEN_RESOURCE', route);
+      assert.equal(r.body.id, undefined, `${route}: no promotion data in the response`);
+      assert.ok(!JSON.stringify(r.body).includes(promoPass85Id), `${route}: promotion id not exposed`);
+    }
+
+    // The authorized owner teacher and a supervisor still get the existing promotion (idempotent, no duplicate)
+    for (const route of processRoutes(resultPass85Id)) {
+      for (const token of [teacherAToken, supervisorToken]) {
+        const r = await call('POST', route, token);
+        assert.equal(r.status, 200, route);
+        assert.equal(r.body.id, promoPass85Id, route);
+      }
+    }
+
+    const after = await db.select().from(promotions).where(eq(promotions.examResultId, resultPass85Id));
+    assert.equal(after.length, 1);
+    const auditsAfter = (
+      await db.select().from(auditLogs).where(eq(auditLogs.entityId, promoPass85Id))
+    ).length;
+    assert.equal(auditsAfter, auditsBefore);
+  });
+
+  it('24. Supervisor keeps unrestricted processing access and gets 404 for a missing exam result on both routes', async () => {
+    for (const route of processRoutes(MISSING_ID)) {
+      const r = await call('POST', route, supervisorToken);
+      assert.equal(r.status, 404, route);
+      assert.equal(r.code, 'RESOURCE_NOT_FOUND', route);
+    }
+  });
+
+  it('25. A teacher account without a linked teacher record gets 403 FORBIDDEN_RESOURCE on every exam and promotion path', async () => {
+    const paths: Array<[string, string]> = [
+      ['POST', `/exam-results/${resultPass85Id}/process-promotion`],
+      ['POST', `/exam-results/${MISSING_ID}/process-promotion`],
+      ['POST', `/promotions/process/${resultPass85Id}`],
+      ['POST', `/promotions/process/${MISSING_ID}`],
+      ['GET', '/promotions'],
+      ['GET', `/promotions/${promoPass85Id}`],
+      ['GET', `/promotions/${MISSING_ID}`],
+      ['GET', `/students/${student1Id}/promotions`],
+      ['GET', `/students/${MISSING_ID}/promotions`],
+      ['GET', `/classes/${class1Id}/exams`],
+      ['GET', `/exams/${exam1Id}`],
+      ['GET', `/exams/${exam1Id}/results`],
+      ['PATCH', `/exam-results/${resultPass85Id}`],
+    ];
+    for (const [method, path] of paths) {
+      const r = await call(method, path, teacherNoRecordToken);
+      assert.equal(r.status, 403, `${method} ${path}`);
+      assert.equal(r.code, 'FORBIDDEN_RESOURCE', `${method} ${path}`);
+    }
+  });
+
+  it('26. GET /students/:id/promotions: a teacher gets the same 403 FORBIDDEN_RESOURCE for a missing and an out-of-scope student', async () => {
+    const unrelatedStudentId = await mkStudent('NoClassWithA'); // exists, enrolled nowhere
+    const studentOfBOnlyId = await mkStudent('OnlyInClassB', [class2Id]); // exists, other teacher's class
+
+    const missing = await call('GET', `/students/${MISSING_ID}/promotions`, teacherAToken);
+    const unrelated = await call('GET', `/students/${unrelatedStudentId}/promotions`, teacherAToken);
+    const ofB = await call('GET', `/students/${studentOfBOnlyId}/promotions`, teacherAToken);
+
+    for (const r of [missing, unrelated, ofB]) {
+      assert.equal(r.status, 403);
+      assert.equal(r.code, 'FORBIDDEN_RESOURCE');
+    }
+    assert.equal(missing.message, unrelated.message);
+    assert.equal(missing.message, ofB.message);
+    assert.ok(!String(missing.message).includes(MISSING_ID));
+  });
+
+  it('27. GET /students/:id/promotions: an in-scope student without promotions still returns 200 with an empty list', async () => {
+    const inScopeNoPromotionsId = await mkStudent('InScopeNoPromos', [class1Id]);
+    const r = await call('GET', `/students/${inScopeNoPromotionsId}/promotions`, teacherAToken);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body, []);
+
+    // An in-scope student with promotions still lists them
+    const withPromos = await call('GET', `/students/${student1Id}/promotions`, teacherAToken);
+    assert.equal(withPromos.status, 200);
+    assert.equal(withPromos.body.length, 1);
+    assert.equal(withPromos.body[0].id, promoPass85Id);
+  });
+
+  it('27b. GET /students/:id/promotions: an enrollment of ANY status in the teacher\'s class grants the same historical scope', async () => {
+    // Statuses of the enrollment_status enum: ACTIVE (current) and COMPLETED / WITHDRAWN (historical)
+    const statuses = ['ACTIVE', 'COMPLETED', 'WITHDRAWN'] as const;
+
+    for (const status of statuses) {
+      // In scope, no promotion records: 200 with an empty list
+      const [noPromos] = await db.insert(students).values({ firstName: `NoPromos-${status}`, lastName: 'AuthTest' }).returning();
+      await db.insert(enrollments).values({ classId: class1Id, studentId: noPromos.id, status });
+      const empty = await call('GET', `/students/${noPromos.id}/promotions`, teacherAToken);
+      assert.equal(empty.status, 200, `${status}: in-scope student without promotions`);
+      assert.deepEqual(empty.body, [], `${status}: empty list`);
+
+      // In scope, with a promotion from the teacher's class: the promotion is listed
+      const [withPromo] = await db.insert(students).values({ firstName: `WithPromo-${status}`, lastName: 'AuthTest' }).returning();
+      await db.insert(enrollments).values({ classId: class1Id, studentId: withPromo.id, status });
+      const [er] = await db
+        .insert(examResults)
+        .values({ examId: exam1Id, studentId: withPromo.id, score: '65.00' })
+        .returning();
+      const [pr] = await db
+        .insert(promotions)
+        .values({ studentId: withPromo.id, fromBookId: book1Id, examResultId: er.id, status: 'PENDING_DECISION' })
+        .returning();
+      const listed = await call('GET', `/students/${withPromo.id}/promotions`, teacherAToken);
+      assert.equal(listed.status, 200, `${status}: in-scope student with a promotion`);
+      assert.deepEqual(listed.body.map((p: any) => p.id), [pr.id], `${status}: promotion listed`);
+
+      // The same status in ANOTHER teacher's class gives Teacher A no access
+      const [otherTeacherOnly] = await db.insert(students).values({ firstName: `OtherTeacher-${status}`, lastName: 'AuthTest' }).returning();
+      await db.insert(enrollments).values({ classId: class2Id, studentId: otherTeacherOnly.id, status });
+      const denied = await call('GET', `/students/${otherTeacherOnly.id}/promotions`, teacherAToken);
+      assert.equal(denied.status, 403, `${status}: enrolled only with another teacher`);
+      assert.equal(denied.code, 'FORBIDDEN_RESOURCE', `${status}: enrolled only with another teacher (code)`);
+    }
+
+    // A student with no enrollment in any class stays out of scope
+    const [unenrolled] = await db.insert(students).values({ firstName: 'Unenrolled-27b', lastName: 'AuthTest' }).returning();
+    const outOfScope = await call('GET', `/students/${unenrolled.id}/promotions`, teacherAToken);
+    assert.equal(outOfScope.status, 403);
+    assert.equal(outOfScope.code, 'FORBIDDEN_RESOURCE');
+  });
+
+  it('28. GET /students/:id/promotions: supervisor is unrestricted and gets 404 for a missing student', async () => {
+    const missing = await call('GET', `/students/${MISSING_ID}/promotions`, supervisorToken);
+    assert.equal(missing.status, 404);
+    assert.equal(missing.code, 'RESOURCE_NOT_FOUND');
+
+    const unrelatedStudentId = await mkStudent('SupervisorSees');
+    const any = await call('GET', `/students/${unrelatedStudentId}/promotions`, supervisorToken);
+    assert.equal(any.status, 200);
+    assert.deepEqual(any.body, []);
+  });
+
+  it('29. Owner teacher keeps historical read access to promotions of a COMPLETED class, and others stay denied', async () => {
+    await db.update(classes).set({ status: 'COMPLETED' }).where(eq(classes.id, class1Id));
+    try {
+      const list = await call('GET', '/promotions', teacherAToken);
+      assert.equal(list.status, 200);
+      assert.ok(list.body.some((p: any) => p.id === promoPass85Id));
+
+      assert.equal((await call('GET', `/promotions/${promoPass85Id}`, teacherAToken)).status, 200);
+      assert.equal((await call('GET', `/students/${student1Id}/promotions`, teacherAToken)).status, 200);
+
+      const other = await call('GET', `/promotions/${promoPass85Id}`, teacherBToken);
+      assert.equal(other.status, 403);
+      assert.equal(other.code, 'FORBIDDEN_RESOURCE');
+    } finally {
+      await db.update(classes).set({ status: 'ACTIVE' }).where(eq(classes.id, class1Id));
+    }
   });
 });
