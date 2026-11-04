@@ -288,6 +288,7 @@ export class PromotionService {
         .select()
         .from(books)
         .where(eq(books.id, promotion.fromBookId))
+        .for('update')
         .limit(1);
 
       if (!fromBook) {
@@ -313,6 +314,7 @@ export class PromotionService {
               ),
             )
             .orderBy(asc(books.sequenceOrder))
+            .for('update')
             .limit(1);
 
           toBookId = nextBook ? nextBook.id : null;
