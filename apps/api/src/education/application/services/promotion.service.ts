@@ -209,9 +209,15 @@ export class PromotionService {
     const data = parseResult.data;
     const now = new Date();
 
-    await this.db.transaction(async (tx: any) => {
-      // Lock in a stable order. The promotion lock serializes competing decisions;
-      // the result and class locks prevent score/ownership changes until commit.
+    return await this.db.transaction(async (tx: any): Promise<PromotionDetailDto> => {
+      // Lock order (keep it stable; any other transaction that locks several of these rows must follow it):
+      //   promotion -> exam result -> exam -> class -> source book -> eligible next books by ascending sequenceOrder.
+      // - promotion, exam result: FOR UPDATE. The promotion lock serializes competing decisions; the result lock
+      //   keeps the score and the result's identity fixed until commit.
+      // - exam, class, books: FOR NO KEY UPDATE. That still blocks every UPDATE and DELETE of these rows (so the
+      //   class owner, the exam's class, a book's sequence/active/terminal flags cannot change under the
+      //   decision) but, unlike FOR UPDATE, does not block inserts of child rows that only reference them
+      //   (enrollments, exams, exam results, classes, syllabi, promotions).
       const [promotion] = await tx
         .select()
         .from(promotions)
@@ -241,7 +247,7 @@ export class PromotionService {
             .select()
             .from(exams)
             .where(eq(exams.id, examResult.examId))
-            .for('update')
+            .for('no key update')
             .limit(1)
         : [];
 
@@ -250,7 +256,7 @@ export class PromotionService {
             .select()
             .from(classes)
             .where(eq(classes.id, exam.classId))
-            .for('update')
+            .for('no key update')
             .limit(1)
         : [];
 
@@ -288,7 +294,7 @@ export class PromotionService {
         .select()
         .from(books)
         .where(eq(books.id, promotion.fromBookId))
-        .for('update')
+        .for('no key update')
         .limit(1);
 
       if (!fromBook) {
@@ -313,8 +319,8 @@ export class PromotionService {
                 eq(books.isActive, true),
               ),
             )
-            .orderBy(asc(books.sequenceOrder))
-            .for('update');
+            .orderBy(asc(books.sequenceOrder), asc(books.id))
+            .for('no key update');
 
           // Lock the current eligible set in sequence order so edits to another
           // candidate cannot silently change which book is considered "next".
@@ -362,18 +368,50 @@ export class PromotionService {
           reason: data.reason || null,
         },
       });
-    });
 
-    return this.getPromotion(promotionId, user);
+      // Build the response inside the transaction, from the rows this transaction has locked and validated.
+      // Authorization was decided above under those locks, so no scope filter is applied here: the read is keyed by
+      // the promotion this transaction just decided, and re-applying the caller's scope after COMMIT could turn a
+      // successful decision into a 403 if ownership changed in between.
+      const detail = await this.loadPromotionDetail(tx, promotionId, []);
+      if (!detail) {
+        throw new Error(`Invariant violated: promotion ${promotionId} vanished inside its own decision transaction`);
+      }
+      return detail;
+    });
   }
 
   /**
    * Get Promotion detail by ID
    */
   async getPromotion(id: string, user: AuthUser): Promise<PromotionDetailDto> {
+    const detail = await this.loadPromotionDetail(this.db, id, this.teacherScopeConditions(user));
+    if (!detail) {
+      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
+      if (resolveDataScope(user).kind !== 'ALL') {
+        throw forbiddenResource('You do not have permission to access this promotion');
+      }
+      throw new NotFoundException({
+        code: 'RESOURCE_NOT_FOUND',
+        message: `Promotion with id ${id} not found`,
+      });
+    }
+    return detail;
+  }
+
+  /**
+   * Shared read model for a single promotion. `executor` is the pool or an open transaction, so a caller that
+   * already holds the locks can read its own writes inside the same transaction. `conditions` carries the teacher
+   * scope; it is empty only where authorization has already been enforced.
+   */
+  private async loadPromotionDetail(
+    executor: any,
+    id: string,
+    conditions: SQL[],
+  ): Promise<PromotionDetailDto | undefined> {
     const toBooks = alias(books, 'to_books');
 
-    const [row] = await this.db
+    const [row] = await executor
       .select({
         promotion: promotions,
         student: students,
@@ -388,19 +426,10 @@ export class PromotionService {
       .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
       .innerJoin(exams, eq(examResults.examId, exams.id))
       .innerJoin(classes, eq(exams.classId, classes.id))
-      .where(and(eq(promotions.id, id), ...this.teacherScopeConditions(user)))
+      .where(and(eq(promotions.id, id), ...conditions))
       .limit(1);
 
-    if (!row) {
-      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
-      if (resolveDataScope(user).kind !== 'ALL') {
-        throw forbiddenResource('You do not have permission to access this promotion');
-      }
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Promotion with id ${id} not found`,
-      });
-    }
+    if (!row) return undefined;
 
     return {
       id: row.promotion.id,
