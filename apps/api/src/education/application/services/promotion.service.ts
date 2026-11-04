@@ -207,77 +207,131 @@ export class PromotionService {
     }
 
     const data = parseResult.data;
+    const now = new Date();
 
-    const [row] = await this.db
-      .select({
-        promotion: promotions,
-        fromBook: books,
-        score: examResults.score,
-      })
-      .from(promotions)
-      .innerJoin(books, eq(promotions.fromBookId, books.id))
-      .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
-      .innerJoin(exams, eq(examResults.examId, exams.id))
-      .innerJoin(classes, eq(exams.classId, classes.id))
-      .where(and(eq(promotions.id, promotionId), ...this.teacherScopeConditions(user)))
-      .limit(1);
+    return await this.db.transaction(async (tx: any): Promise<PromotionDetailDto> => {
+      // Lock order (keep it stable; any other transaction that locks several of these rows must follow it):
+      //   promotion -> exam result -> exam -> class -> source book -> eligible next books by ascending sequenceOrder.
+      // - promotion, exam result: FOR UPDATE. The promotion lock serializes competing decisions; the result lock
+      //   keeps the score and the result's identity fixed until commit.
+      // - exam, class, books: FOR NO KEY UPDATE. That still blocks every UPDATE and DELETE of these rows (so the
+      //   class owner, the exam's class, a book's sequence/active/terminal flags cannot change under the
+      //   decision) but, unlike FOR UPDATE, does not block inserts of child rows that only reference them
+      //   (enrollments, exams, exam results, classes, syllabi, promotions).
+      const [promotion] = await tx
+        .select()
+        .from(promotions)
+        .where(eq(promotions.id, promotionId))
+        .for('update')
+        .limit(1);
 
-    if (!row) {
-      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
-      if (scope.kind !== 'ALL') {
+      if (!promotion) {
+        if (scope.kind !== 'ALL') {
+          throw forbiddenResource('You do not have permission to decide this promotion');
+        }
+        throw new NotFoundException({
+          code: 'RESOURCE_NOT_FOUND',
+          message: `Promotion with id ${promotionId} not found`,
+        });
+      }
+
+      const [examResult] = await tx
+        .select()
+        .from(examResults)
+        .where(eq(examResults.id, promotion.examResultId))
+        .for('update')
+        .limit(1);
+
+      const [exam] = examResult
+        ? await tx
+            .select()
+            .from(exams)
+            .where(eq(exams.id, examResult.examId))
+            .for('no key update')
+            .limit(1)
+        : [];
+
+      const [cls] = exam
+        ? await tx
+            .select()
+            .from(classes)
+            .where(eq(classes.id, exam.classId))
+            .for('no key update')
+            .limit(1)
+        : [];
+
+      // Preserve the existing anti-enumeration behavior for teachers.
+      if (!examResult || !exam || !cls) {
+        if (scope.kind !== 'ALL') {
+          throw forbiddenResource('You do not have permission to decide this promotion');
+        }
+        throw new NotFoundException({
+          code: 'RESOURCE_NOT_FOUND',
+          message: `Promotion with id ${promotionId} not found`,
+        });
+      }
+
+      if (scope.kind === 'TEACHER' && cls.teacherId !== scope.teacherId) {
         throw forbiddenResource('You do not have permission to decide this promotion');
       }
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Promotion with id ${promotionId} not found`,
-      });
-    }
 
-    if (row.promotion.status !== 'PENDING_DECISION') {
-      throw new BadRequestException({
-        code: 'INVALID_INPUT',
-        message: `Cannot decide an already finalized promotion with status ${row.promotion.status}`,
-      });
-    }
+      if (promotion.status !== 'PENDING_DECISION') {
+        throw new BadRequestException({
+          code: 'INVALID_INPUT',
+          message: `Cannot decide an already finalized promotion with status ${promotion.status}`,
+        });
+      }
 
-    if (scope.kind === 'TEACHER') {
-      const score = parseFloat(row.score);
-      if (!(score >= 60.0 && score < 70.0)) {
+      const score = parseFloat(examResult.score);
+      if (scope.kind === 'TEACHER' && !(score >= 60.0 && score < 70.0)) {
         throw new BadRequestException({
           code: 'INVALID_INPUT',
           message: 'This promotion does not require a conditional promotion decision',
         });
       }
-    }
 
-    let newStatus: PromotionStatus;
-    let toBookId: string | null = null;
+      const [fromBook] = await tx
+        .select()
+        .from(books)
+        .where(eq(books.id, promotion.fromBookId))
+        .for('no key update')
+        .limit(1);
 
-    if (data.decision === 'PROMOTE') {
-      newStatus = 'PROMOTED';
-      if (!row.fromBook.isTerminal) {
-        const [nextBook] = await this.db
-          .select()
-          .from(books)
-          .where(
-            and(
-              gt(books.sequenceOrder, row.fromBook.sequenceOrder),
-              eq(books.isActive, true),
-            ),
-          )
-          .orderBy(asc(books.sequenceOrder))
-          .limit(1);
-
-        toBookId = nextBook ? nextBook.id : null;
+      if (!fromBook) {
+        throw new NotFoundException({
+          code: 'RESOURCE_NOT_FOUND',
+          message: `Source book for promotion ${promotionId} not found`,
+        });
       }
-    } else {
-      // DO_NOT_PROMOTE, REPEAT, REMEDIAL
-      newStatus = 'NOT_PROMOTED';
-      toBookId = null;
-    }
 
-    const now = new Date();
-    await this.db.transaction(async (tx: any) => {
+      let newStatus: PromotionStatus;
+      let toBookId: string | null = null;
+
+      if (data.decision === 'PROMOTE') {
+        newStatus = 'PROMOTED';
+        if (!fromBook.isTerminal) {
+          const eligibleNextBooks = await tx
+            .select()
+            .from(books)
+            .where(
+              and(
+                gt(books.sequenceOrder, fromBook.sequenceOrder),
+                eq(books.isActive, true),
+              ),
+            )
+            .orderBy(asc(books.sequenceOrder), asc(books.id))
+            .for('no key update');
+
+          // Lock the current eligible set in sequence order so edits to another
+          // candidate cannot silently change which book is considered "next".
+          const nextBook = eligibleNextBooks[0];
+          toBookId = nextBook ? nextBook.id : null;
+        }
+      } else {
+        // DO_NOT_PROMOTE, REPEAT, REMEDIAL
+        newStatus = 'NOT_PROMOTED';
+      }
+
       const updated = await tx
         .update(promotions)
         .set({
@@ -291,7 +345,7 @@ export class PromotionService {
         .where(and(eq(promotions.id, promotionId), eq(promotions.status, 'PENDING_DECISION')))
         .returning({ id: promotions.id });
 
-      // Lost a race with another decision: nothing was written, so write no audit event either.
+      // Retain a conditional update as a second line of defense.
       if (updated.length === 0) {
         throw new BadRequestException({
           code: 'INVALID_INPUT',
@@ -305,27 +359,59 @@ export class PromotionService {
         entityType: 'PROMOTION',
         entityId: promotionId,
         metadata: {
-          previousStatus: row.promotion.status,
+          previousStatus: promotion.status,
           newStatus,
           decision: data.decision,
-          studentId: row.promotion.studentId,
-          fromBookId: row.promotion.fromBookId,
+          studentId: promotion.studentId,
+          fromBookId: promotion.fromBookId,
           toBookId,
           reason: data.reason || null,
         },
       });
-    });
 
-    return this.getPromotion(promotionId, user);
+      // Build the response inside the transaction, from the rows this transaction has locked and validated.
+      // Authorization was decided above under those locks, so no scope filter is applied here: the read is keyed by
+      // the promotion this transaction just decided, and re-applying the caller's scope after COMMIT could turn a
+      // successful decision into a 403 if ownership changed in between.
+      const detail = await this.loadPromotionDetail(tx, promotionId, []);
+      if (!detail) {
+        throw new Error(`Invariant violated: promotion ${promotionId} vanished inside its own decision transaction`);
+      }
+      return detail;
+    });
   }
 
   /**
    * Get Promotion detail by ID
    */
   async getPromotion(id: string, user: AuthUser): Promise<PromotionDetailDto> {
+    const detail = await this.loadPromotionDetail(this.db, id, this.teacherScopeConditions(user));
+    if (!detail) {
+      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
+      if (resolveDataScope(user).kind !== 'ALL') {
+        throw forbiddenResource('You do not have permission to access this promotion');
+      }
+      throw new NotFoundException({
+        code: 'RESOURCE_NOT_FOUND',
+        message: `Promotion with id ${id} not found`,
+      });
+    }
+    return detail;
+  }
+
+  /**
+   * Shared read model for a single promotion. `executor` is the pool or an open transaction, so a caller that
+   * already holds the locks can read its own writes inside the same transaction. `conditions` carries the teacher
+   * scope; it is empty only where authorization has already been enforced.
+   */
+  private async loadPromotionDetail(
+    executor: any,
+    id: string,
+    conditions: SQL[],
+  ): Promise<PromotionDetailDto | undefined> {
     const toBooks = alias(books, 'to_books');
 
-    const [row] = await this.db
+    const [row] = await executor
       .select({
         promotion: promotions,
         student: students,
@@ -340,19 +426,10 @@ export class PromotionService {
       .innerJoin(examResults, eq(promotions.examResultId, examResults.id))
       .innerJoin(exams, eq(examResults.examId, exams.id))
       .innerJoin(classes, eq(exams.classId, classes.id))
-      .where(and(eq(promotions.id, id), ...this.teacherScopeConditions(user)))
+      .where(and(eq(promotions.id, id), ...conditions))
       .limit(1);
 
-    if (!row) {
-      // A teacher gets the same 403 whether the promotion is someone else's or does not exist.
-      if (resolveDataScope(user).kind !== 'ALL') {
-        throw forbiddenResource('You do not have permission to access this promotion');
-      }
-      throw new NotFoundException({
-        code: 'RESOURCE_NOT_FOUND',
-        message: `Promotion with id ${id} not found`,
-      });
-    }
+    if (!row) return undefined;
 
     return {
       id: row.promotion.id,
