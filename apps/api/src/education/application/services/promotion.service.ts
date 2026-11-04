@@ -304,7 +304,7 @@ export class PromotionService {
       if (data.decision === 'PROMOTE') {
         newStatus = 'PROMOTED';
         if (!fromBook.isTerminal) {
-          const [nextBook] = await tx
+          const eligibleNextBooks = await tx
             .select()
             .from(books)
             .where(
@@ -314,9 +314,11 @@ export class PromotionService {
               ),
             )
             .orderBy(asc(books.sequenceOrder))
-            .for('update')
-            .limit(1);
+            .for('update');
 
+          // Lock the current eligible set in sequence order so edits to another
+          // candidate cannot silently change which book is considered "next".
+          const nextBook = eligibleNextBooks[0];
           toBookId = nextBook ? nextBook.id : null;
         }
       } else {
