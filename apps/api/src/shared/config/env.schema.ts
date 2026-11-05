@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidTimeZone } from '../../sessions/domain/session-start';
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -14,6 +15,13 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   // Only variables listed here are copied from .env into process.env by ConfigModule.
   DATABASE_CONNECT_RETRY_SECONDS: z.string().optional(),
+  // IANA time zone in which class session dates/times are expressed (default Asia/Tehran).
+  BUSINESS_TIME_ZONE: z
+    .string()
+    .optional()
+    .refine((value) => !value?.trim() || isValidTimeZone(value.trim()), {
+      message: 'BUSINESS_TIME_ZONE must be a valid IANA time zone name (for example Asia/Tehran)',
+    }),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
