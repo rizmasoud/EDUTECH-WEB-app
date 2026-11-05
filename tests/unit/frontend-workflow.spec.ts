@@ -138,7 +138,7 @@ describe('Phase 5 Frontend Workflow Components', () => {
       })
     );
 
-    assert.ok(html.includes('Teacher Schedule Portal (Read-Only)'), 'Should show read-only teacher banner');
+    assert.ok(html.includes('Schedule changes remain managed by the Academic Supervisor.'), 'Should explain that schedule changes remain supervisor-managed');
     assert.ok(html.includes('ENG-101'), 'Should render assigned class');
     assert.equal(html.includes('Accept Proposal'), false, 'Teacher view must not expose supervisor accept action');
     assert.equal(html.includes('Generate Proposal'), false, 'Teacher view must not expose generator action');
