@@ -15,9 +15,16 @@ This document must reflect the current codebase and available test evidence. It 
 - Backend: NestJS
 - Database: PostgreSQL
 - ORM and migrations: Drizzle ORM
-- Primary development assistant: Claude.ai
 - Repository: `rizmasoud/EDUTECH-WEB-app`
-- Target branch: `claude/postgres-only`
+- Target branch: `main`
+
+### 2.1 Latest Repository Baseline
+
+The latest repository baseline recorded for this document is `main` at commit `31115c5757450af11fa9c6b2016999f46bc16017` (2026-11-05).
+
+The repository contains a modular NestJS backend, a Next.js frontend with supervisor workflows and a limited teacher-facing UI, PostgreSQL/Drizzle database infrastructure, and unit and integration test suites.
+
+GitHub Actions completed successfully for this commit, including lint, shared-package build, API build, web build, and tests. This CI result does not establish that every MVP workflow is complete or end-to-end verified.
 
 Verify the current branch and repository before using this information. If the repository or branch differs, report the discrepancy rather than silently switching contexts.
 

@@ -153,7 +153,11 @@ The proposed core workflow is:
 
 > **Update (2026-10-28):** The MVP boundary was approved by the product owner and is recorded in `Docs/product/mvp-scope.md`, which is authoritative for scope.
 
-The final MVP boundary must be agreed upon after the repository audit. Features may be deferred only through an explicit decision, not silently omitted.
+The MVP boundary was approved by the product owner on 2026-10-28 and is recorded in `Docs/product/mvp-scope.md`, which is authoritative for scope and decision history.
+
+Implementation status is tracked separately in `Docs/EDUTECH-CURRENT-STATE.md`. Inclusion in the MVP does not mean a feature has been implemented or verified.
+
+Features may be deferred only through an explicit decision, not silently omitted.
 
 ## 5. Development Workflow
 
