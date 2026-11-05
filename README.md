@@ -1,9 +1,11 @@
-# EduTech Web — Phase 0: Foundation
+# EduTech Web
 
 ## 1. What is EduTech Web?
-**EduTech Web** is an education workflow management system designed specifically for language institutes. Its core mission is to minimize manual administrative overhead for the **Supervisor** across academic terms, student records, teacher allocations, class scheduling, syllabi, book segment tracking, and exams.
+**EduTech Web** is an education workflow management system designed specifically for language institutes. Its core mission is to minimize manual administrative overhead for the **Supervisor** across academic terms, student records, teacher allocations, class scheduling, syllabi, book segment tracking, exams, and related educational workflows.
 
-Phase 0 establishes the clean, modular, and maintainable technical foundation. Strictly no business domain entities or features have been prematurely implemented in this phase.
+The project is a pnpm monorepo with a Next.js frontend, a modular NestJS backend, PostgreSQL, Drizzle ORM, shared TypeScript packages, and automated checks. The repository contains implemented supervisor workflows and a partially implemented teacher-facing application.
+
+The approved MVP boundary is documented in `Docs/product/mvp-scope.md`. For evidence-based implementation status, see `Docs/EDUTECH-CURRENT-STATE.md`.
 
 ---
 
@@ -19,48 +21,18 @@ Phase 0 establishes the clean, modular, and maintainable technical foundation. S
 ---
 
 ## 3. Monorepo Repository Structure
-```text
-edutech-web/
-├── apps/
-│   ├── web/                    # Next.js 15 App Router frontend shell
-│   │   ├── app/                # Root layout, health check UI, and API route
-│   │   ├── next.config.ts      # Next.js configuration & API rewrites
-│   │   └── package.json
-│   └── api/                    # NestJS 11 modular API
-│       ├── src/
-│       │   ├── main.ts         # Bootstrap and CORS configuration
-│       │   ├── app.module.ts   # Root NestJS application module
-│       │   ├── health/         # Clean Architecture health check module
-│       │   │   ├── domain/     # IDatabaseHealthChecker (no framework deps)
-│       │   │   ├── application/# HealthService orchestration
-│       │   │   ├── presentation/ HealthController (GET /health)
-│       │   │   └── infrastructure/ DrizzleDatabaseHealthChecker
-│       │   ├── infrastructure/
-│       │   │   └── database/   # Drizzle ORM provider and schema barrel
-│       │   ├── shared/config/  # Zod-validated environment config
-│       │   └── modules/        # Reserved for future business modules
-│       ├── drizzle.config.ts   # Drizzle Kit configuration
-│       └── package.json
-├── packages/
-│   ├── shared/                 # Framework-independent contracts & types
-│   │   └── src/                # HealthResponse, Zod schemas, types
-│   └── config/                 # Shared tooling configurations
-├── infrastructure/
-│   └── docker/
-│       └── init/01-init.sql    # PostgreSQL initial extensions
-├── docs/                       # Architecture and phase specifications
-├── scripts/                    # Development, setup, and verification scripts
-├── .github/workflows/          # CI pipeline (lint, build, health checks)
-├── package.json                # Root workspace orchestration
-├── pnpm-workspace.yaml         # Monorepo package registry
-├── tsconfig.base.json          # Strict base TypeScript config
-├── docker-compose.yml          # Local PostgreSQL 16 container service
-├── .editorconfig               # Formatting & whitespace standard
-├── .env.example                # Documented environment template
-└── README.md                   # Project documentation
-```
 
----
+The repository is organized as a pnpm workspace monorepo:
+
+- `apps/web/`: Next.js frontend, including supervisor workflows and the currently limited teacher-facing UI.
+- `apps/api/`: NestJS backend, organized into feature modules and shared infrastructure.
+- `packages/`: Shared TypeScript contracts and tooling configuration.
+- `Docs/` and `docs/`: Product, business, architecture, implementation, and operations documentation.
+- `tests/`: Unit and integration test suites.
+- `scripts/`: Development, database, and verification utilities.
+- `.github/workflows/`: Continuous-integration workflows.
+
+The backend includes educational and operational modules beyond the initial health-check foundation. The presence of a backend module does not by itself mean its complete user-facing workflow is available.
 
 ## 4. Prerequisites
 * **Node.js**: >= 22.0.0 (Node 22 LTS). This is `engines.node` in `package.json` and the project's supported baseline: CI runs on Node 22, and the dependency lockfile contains packages that require Node 22 or later (for example `concurrently` and the Google auth libraries pulled in by `@google/genai`). `pnpm --filter @edutech/api dev` refuses to start on an older Node.
@@ -175,7 +147,10 @@ Never commit `.env` or real credentials to Git.
 
 ---
 
-## 11. Architecture Rules (Phase 0 Boundaries)
+## 11. Architecture Principles
 * **Dependency Flow**: Presentation $\rightarrow$ Application $\rightarrow$ Domain $\leftarrow$ Infrastructure
-* **Strict Domain Isolation**: Domain interfaces have zero framework dependencies.
-* **No Business Modules in Phase 0**: No tables or endpoints for Students, Teachers, Classes, Books, Syllabus, or Exams exist until Phase 1.
+* **Domain Isolation**: Keep domain rules independent of framework-specific concerns.
+* **Backend Authority**: Enforce business rules, input validation, and authorization on the backend.
+* **Database Integrity**: Use PostgreSQL constraints and transactions to protect critical invariants.
+* **Single Runtime Database**: PostgreSQL is the only supported runtime database.
+* **Incremental Development**: Follow the approved MVP scope and preserve working functionality unless a change is justified.
