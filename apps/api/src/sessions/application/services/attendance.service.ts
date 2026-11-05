@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  Optional,
   BadRequestException,
   NotFoundException,
   ForbiddenException,
@@ -19,6 +20,9 @@ import {
 } from '../../../infrastructure/database/schema/attendance.schema';
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
 import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
+import { hasSessionStarted, resolveBusinessTimeZone } from '../../domain/session-start';
+import { CLOCK, systemClock } from '../../../shared/clock';
+import type { Clock } from '../../../shared/clock';
 import { students } from '../../../infrastructure/database/schema/students.schema';
 import { teachers } from '../../../infrastructure/database/schema/teachers.schema';
 import { academicTerms } from '../../../infrastructure/database/schema/academics.schema';
@@ -42,6 +46,9 @@ export class AttendanceService {
   constructor(
     @Inject(DRIZZLE_DB)
     private readonly db: any,
+    @Optional()
+    @Inject(CLOCK)
+    private readonly clock: Clock = systemClock,
   ) {}
 
   /**
@@ -231,6 +238,8 @@ export class AttendanceService {
           id: classSessions.id,
           classId: classSessions.classId,
           status: classSessions.status,
+          sessionDate: classSessions.sessionDate,
+          startTime: classSessions.startTime,
           classTeacherId: classes.teacherId,
         })
         .from(classSessions)
@@ -320,7 +329,18 @@ export class AttendanceService {
         });
       }
 
-      // 6. Bulk writes & Audit logging
+      // 6. Attendance can only be recorded once the scheduled start has been reached. The session
+      // date/time are school wall-clock values, so they are interpreted in the business time zone
+      // (never the server's). Rejecting here, before any write, leaves the records untouched.
+      const businessTimeZone = resolveBusinessTimeZone();
+      if (!hasSessionStarted(session, this.clock.now(), businessTimeZone)) {
+        throw new BadRequestException({
+          code: 'SESSION_NOT_STARTED',
+          message: `Attendance cannot be recorded before the session starts (${session.sessionDate} ${String(session.startTime).slice(0, 5)} ${businessTimeZone}).`,
+        });
+      }
+
+      // 7. Bulk writes & Audit logging
       let presentCount = 0;
       let absentCount = 0;
       let lateCount = 0;

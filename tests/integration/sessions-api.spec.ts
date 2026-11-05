@@ -35,9 +35,12 @@ import { SessionGenerationService } from '../../apps/api/src/sessions/applicatio
 import { AttendanceService } from '../../apps/api/src/sessions/application/services/attendance.service';
 import { SessionLifecycleService } from '../../apps/api/src/sessions/application/services/session-lifecycle.service';
 import { HttpExceptionFilter } from '../../apps/api/src/shared/filters/http-exception.filter';
+import { CLOCK } from '../../apps/api/src/shared/clock';
 import { eq, and } from 'drizzle-orm';
 
 let sharedDb: any;
+// Deterministic clock for time-dependent rules; null means the real system time.
+let testNow: Date | null = null;
 
 @Module({
   controllers: [SessionsController],
@@ -51,6 +54,10 @@ let sharedDb: any;
     {
       provide: DRIZZLE_DB,
       useFactory: () => sharedDb,
+    },
+    {
+      provide: CLOCK,
+      useValue: { now: () => testNow ?? new Date() },
     },
     {
       provide: PASSWORD_HASHER,
@@ -747,6 +754,189 @@ describe('Sessions Generation & Query API Integration Tests', () => {
         headers: { Authorization: `Bearer ${teacherToken}` },
       });
       assert.equal(resTch.status, 200);
+    });
+  });
+
+  describe('Student Attendance start-time rule (backend enforcement)', () => {
+    // Session at 2030-01-15 08:00 school time (Asia/Tehran, UTC+03:30) starts at 04:30:00Z.
+    const SESSION_DATE = '2030-01-15';
+    const START_INSTANT = '2030-01-15T04:30:00.000Z';
+    let studentAId: string;
+    let studentBId: string;
+    let notEnrolledId: string;
+    let outsiderTeacherToken: string;
+
+    const newSession = async (overrides: Record<string, unknown> = {}) => {
+      const [created] = await db.insert(classSessions).values({
+        classId,
+        sessionDate: SESSION_DATE,
+        startTime: '08:00:00',
+        endTime: '09:30:00',
+        status: 'SCHEDULED',
+        ...overrides,
+      }).returning();
+      return created.id as string;
+    };
+
+    const submit = (sessionId: string, token: string, items?: Array<{ studentId: string; status: string }>) =>
+      fetch(`${baseUrl}/api/v1/sessions/${sessionId}/attendance`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items ?? [
+            { studentId: studentAId, status: 'PRESENT' },
+            { studentId: studentBId, status: 'ABSENT' },
+          ],
+        }),
+      });
+
+    const recordCount = async (sessionId: string) =>
+      (await db.select().from(attendanceRecords).where(eq(attendanceRecords.classSessionId, sessionId))).length;
+    const auditCount = async (sessionId: string) =>
+      (await db.select().from(auditLogs).where(eq(auditLogs.entityId, sessionId))).length;
+
+    before(async () => {
+      const [a] = await db.insert(students).values({ firstName: 'Time', lastName: 'Rule A', isActive: true }).returning();
+      const [b] = await db.insert(students).values({ firstName: 'Time', lastName: 'Rule B', isActive: true }).returning();
+      const [c] = await db.insert(students).values({ firstName: 'Time', lastName: 'Rule C', isActive: true }).returning();
+      studentAId = a.id;
+      studentBId = b.id;
+      notEnrolledId = c.id;
+      await db.insert(enrollments).values([
+        { classId, studentId: studentAId, status: 'ACTIVE' },
+        { classId, studentId: studentBId, status: 'ACTIVE' },
+      ]);
+
+      const hasher = new ScryptPasswordHasher();
+      const [acc] = await db.insert(accounts).values({
+        personnelCode: 'TCH-TIME-OUT',
+        passwordHash: await hasher.hash('Outsider123!'),
+        isActive: true,
+      }).returning();
+      const [tchRole] = await db.select().from(roles).where(eq(roles.name, 'TEACHER')).limit(1);
+      await db.insert(accountRoles).values({ accountId: acc.id, roleId: tchRole.id });
+      await db.insert(teachers).values({
+        accountId: acc.id, firstName: 'Out', lastName: 'Sider', baseRate: '100.00', isActive: true,
+      });
+      outsiderTeacherToken = (await authService.login({ personnelCode: 'TCH-TIME-OUT', password: 'Outsider123!' })).rawToken;
+    });
+
+    after(() => {
+      testNow = null;
+    });
+
+    it('rejects a teacher submission for a future session with 400 SESSION_NOT_STARTED and writes nothing', async () => {
+      const sessionId = await newSession();
+      testNow = new Date('2030-01-14T12:00:00.000Z');
+      const res = await submit(sessionId, teacherToken);
+
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.equal(body.error.code, 'SESSION_NOT_STARTED');
+      assert.match(body.error.message, /2030-01-15 08:00 Asia\/Tehran/);
+      assert.equal(await recordCount(sessionId), 0);
+      assert.equal(await auditCount(sessionId), 0);
+    });
+
+    it('rejects one millisecond before the scheduled start instant (04:30:00Z for 08:00 Asia/Tehran)', async () => {
+      const sessionId = await newSession();
+      testNow = new Date('2030-01-15T04:29:59.999Z');
+      const res = await submit(sessionId, teacherToken);
+
+      assert.equal(res.status, 400);
+      assert.equal((await res.json()).error.code, 'SESSION_NOT_STARTED');
+      assert.equal(await recordCount(sessionId), 0);
+    });
+
+    it('accepts a submission exactly at the scheduled start instant', async () => {
+      const sessionId = await newSession();
+      testNow = new Date(START_INSTANT);
+      const res = await submit(sessionId, teacherToken);
+
+      assert.equal(res.status, 201);
+      assert.equal((await res.json()).recordedCount, 2);
+      assert.equal(await recordCount(sessionId), 2);
+    });
+
+    it('accepts a submission after the session started, including hours and days later', async () => {
+      for (const now of ['2030-01-15T04:30:00.001Z', '2030-01-15T09:00:00.000Z', '2030-01-20T00:00:00.000Z']) {
+        const sessionId = await newSession({ sessionDate: SESSION_DATE, startTime: '08:00:00' });
+        testNow = new Date(now);
+        const res = await submit(sessionId, teacherToken);
+        assert.equal(res.status, 201, `expected 201 at ${now}`);
+        assert.equal(await recordCount(sessionId), 2);
+      }
+    });
+
+    it('reads the stored wall-clock time in the business time zone, not as UTC', async () => {
+      const sessionId = await newSession();
+      // 05:00Z is 08:30 in Tehran (started) although 08:00 UTC has not been reached.
+      testNow = new Date('2030-01-15T05:00:00.000Z');
+      assert.equal((await submit(sessionId, teacherToken)).status, 201);
+    });
+
+    it('applies the same rule to supervisors for first-time submissions', async () => {
+      const sessionId = await newSession();
+      testNow = new Date('2030-01-14T12:00:00.000Z');
+      const res = await submit(sessionId, supervisorToken);
+
+      assert.equal(res.status, 400);
+      assert.equal((await res.json()).error.code, 'SESSION_NOT_STARTED');
+      assert.equal(await recordCount(sessionId), 0);
+    });
+
+    it('lets the same session be submitted successfully once the start has been reached after a rejection', async () => {
+      const sessionId = await newSession();
+      testNow = new Date('2030-01-14T12:00:00.000Z');
+      assert.equal((await submit(sessionId, teacherToken)).status, 400);
+      assert.equal(await recordCount(sessionId), 0);
+
+      testNow = new Date(START_INSTANT);
+      assert.equal((await submit(sessionId, teacherToken)).status, 201);
+      assert.equal(await recordCount(sessionId), 2);
+    });
+
+    it('still reports the existing errors first for a future session (authorization, state, enrollment, duplicate)', async () => {
+      testNow = new Date('2030-01-14T12:00:00.000Z');
+
+      const foreign = await newSession();
+      const forbidden = await submit(foreign, outsiderTeacherToken);
+      assert.equal(forbidden.status, 403);
+      assert.equal((await forbidden.json()).error.code, 'FORBIDDEN_RESOURCE');
+
+      const cancelled = await newSession({ status: 'CANCELLED' });
+      const cancelledRes = await submit(cancelled, supervisorToken);
+      assert.equal(cancelledRes.status, 400);
+      assert.equal((await cancelledRes.json()).error.code, 'INVALID_STATE');
+
+      const enrollmentSession = await newSession();
+      const enrollmentRes = await submit(enrollmentSession, teacherToken, [{ studentId: notEnrolledId, status: 'PRESENT' }]);
+      assert.equal(enrollmentRes.status, 400);
+      assert.equal((await enrollmentRes.json()).error.code, 'INVALID_ENROLLMENT');
+
+      const recorded = await newSession();
+      const [supAcc] = await db.select().from(accounts).where(eq(accounts.personnelCode, 'SUP-01')).limit(1);
+      await db.insert(attendanceRecords).values({
+        classSessionId: recorded, studentId: studentAId, status: 'PRESENT', recordedBy: supAcc.id,
+      });
+      const duplicateRes = await submit(recorded, teacherToken);
+      assert.equal(duplicateRes.status, 400);
+      assert.equal((await duplicateRes.json()).error.code, 'ATTENDANCE_ALREADY_RECORDED');
+      assert.equal(await recordCount(recorded), 1);
+
+      for (const id of [foreign, cancelled, enrollmentSession]) assert.equal(await recordCount(id), 0);
+    });
+
+    it('keeps supervisor corrections working on a session that has started', async () => {
+      const sessionId = await newSession();
+      testNow = new Date(START_INSTANT);
+      assert.equal((await submit(sessionId, teacherToken)).status, 201);
+
+      const fix = await submit(sessionId, supervisorToken, [{ studentId: studentAId, status: 'EXCUSED' }]);
+      assert.equal(fix.status, 201);
+      const [rec] = await db.select().from(attendanceRecords)
+        .where(and(eq(attendanceRecords.classSessionId, sessionId), eq(attendanceRecords.studentId, studentAId)));
+      assert.equal(rec.status, 'EXCUSED');
     });
   });
 
