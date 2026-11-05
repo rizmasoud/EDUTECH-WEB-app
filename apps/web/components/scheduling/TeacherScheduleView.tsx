@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClassItem, Schedule, UserAccount, StudentItem, EnrollmentItem } from '../../lib/api-client';
 import { apiClient } from '../../lib/api-client';
 import { WeeklyTimetable } from './WeeklyTimetable';
@@ -9,6 +9,7 @@ import {
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { formatTimeRange, getDayName, getClassDisplayName } from '../../lib/scheduling-utils';
+import { createLatestRequestGuard, hasSessionOccurred } from '../../lib/attendance-session-utils';
 
 interface TeacherScheduleViewProps {
   user: UserAccount | null;
@@ -87,6 +88,9 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
   const [panelError, setPanelError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Only the most recent roster/attendance request may update the panel; older responses are discarded.
+  const requestGuard = useRef(createLatestRequestGuard()).current;
+
   const classById = useMemo(() => new Map(classes.map((cls) => [cls.id, cls])), [classes]);
 
   const loadSessions = useCallback(async () => {
@@ -111,6 +115,7 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
   }, [loadSessions]);
 
   const openAttendance = async (session: ClassSession) => {
+    const token = requestGuard.begin();
     setSelectedSession(session);
     setAttendanceLoading(true);
     setPanelError(null);
@@ -137,6 +142,7 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
         }),
       );
 
+      if (!requestGuard.isLatest(token)) return;
       setRoster(classRoster);
       const saved = new Map(attendance.map((record) => [record.studentId, record.status]));
       setAlreadyRecorded(attendance.length > 0);
@@ -145,14 +151,19 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
         saved.get(student.id) ?? '',
       ])));
     } catch (error) {
+      if (!requestGuard.isLatest(token)) return;
       setPanelError(error instanceof Error ? error.message : 'Could not load the class roster and attendance.');
     } finally {
-      setAttendanceLoading(false);
+      if (requestGuard.isLatest(token)) setAttendanceLoading(false);
     }
   };
 
   const handleSave = async () => {
     if (!selectedSession || roster.length === 0) return;
+    if (!hasSessionOccurred(selectedSession)) {
+      setPanelError('Attendance can be submitted only after the session has started.');
+      return;
+    }
     if (roster.some((student) => !statuses[student.id])) {
       setPanelError('Select an attendance status for every student before saving.');
       return;
@@ -183,6 +194,8 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
       setSaving(false);
     }
   };
+
+  const sessionOccurred = selectedSession ? hasSessionOccurred(selectedSession) : false;
 
   const upcoming = sessions
     .filter((session) => classById.has(session.classId))
@@ -235,7 +248,8 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
                 type="button"
                 key={session.id}
                 onClick={() => void openAttendance(session)}
-                className={`rounded-lg border p-3 text-left transition-colors ${selected ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'}`}
+                disabled={saving}
+                className={`rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${selected ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-200 hover:bg-slate-50'}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-900">{getClassDisplayName(cls)}</span>
@@ -264,7 +278,15 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
                 {classById.get(selectedSession.classId) ? getClassDisplayName(classById.get(selectedSession.classId)!) : 'Class'} · {new Date(`${selectedSession.sessionDate}T00:00:00`).toLocaleDateString()}
               </p>
             </div>
-            <button type="button" onClick={() => setSelectedSession(null)} className="text-xs text-slate-500 hover:text-slate-800">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                requestGuard.invalidate();
+                setAttendanceLoading(false);
+                setSelectedSession(null);
+              }}
+              className="text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50">
               Close
             </button>
           </div>
@@ -283,6 +305,11 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
                   Attendance has already been submitted. Teachers can view it but cannot overwrite it. Contact the supervisor if a correction is needed.
                 </p>
               )}
+              {!sessionOccurred && !alreadyRecorded && (
+                <p className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                  This session has not started yet. You can view the roster, but attendance can be submitted only after the session has started.
+                </p>
+              )}
               <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                 {roster.map((student) => (
                   <div key={student.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -293,7 +320,7 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
                     <select
                       aria-label={`Attendance for ${student.firstName} ${student.lastName}`}
                       value={statuses[student.id] ?? ''}
-                      disabled={alreadyRecorded || saving}
+                      disabled={alreadyRecorded || saving || !sessionOccurred}
                       onChange={(event) => setStatuses((current) => ({ ...current, [student.id]: event.target.value as AttendanceStatus | '' }))}
                       className="min-w-36 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
                     >
@@ -308,7 +335,7 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
                   <button
                     type="button"
                     onClick={() => void handleSave()}
-                    disabled={saving || attendanceLoading || roster.length === 0}
+                    disabled={saving || attendanceLoading || roster.length === 0 || !sessionOccurred}
                     className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                   >
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

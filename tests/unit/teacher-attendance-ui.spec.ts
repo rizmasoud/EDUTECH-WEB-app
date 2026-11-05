@@ -34,7 +34,7 @@ describe('Teacher class session attendance workflow', () => {
 
   it('does not allow teachers to overwrite an already-recorded attendance batch', () => {
     assert.match(component, /setAlreadyRecorded\(attendance\.length > 0\)/);
-    assert.match(component, /disabled=\{alreadyRecorded \|\| saving\}/);
+    assert.match(component, /disabled=\{alreadyRecorded \|\| saving \|\| !sessionOccurred\}/);
     assert.match(component, /!alreadyRecorded &&/);
     assert.match(component, /cannot overwrite it/);
   });
@@ -42,5 +42,26 @@ describe('Teacher class session attendance workflow', () => {
   it('filters the teacher timetable by the authenticated teacher id without a permissive fallback', () => {
     assert.match(component, /Boolean\(user\?\.teacherId\) && cls\.teacherId === user\?\.teacherId/);
     assert.doesNotMatch(component, /\|\| !user\?\.teacherId/);
+  });
+
+  it('discards stale roster/attendance responses when the selected session changes', () => {
+    assert.match(component, /createLatestRequestGuard\(\)/);
+    assert.match(component, /const token = requestGuard\.begin\(\)/);
+    // Both the success path and the error path must check the token before touching state.
+    assert.equal((component.match(/requestGuard\.isLatest\(token\)/g) ?? []).length >= 3, true);
+    assert.match(component, /if \(!requestGuard\.isLatest\(token\)\) return;\s*\n\s*setRoster\(classRoster\)/);
+    // Closing the panel invalidates in-flight requests; switching/closing is blocked while saving.
+    assert.match(component, /requestGuard\.invalidate\(\)/);
+    assert.match(component, /disabled=\{saving\}/);
+  });
+
+  it('keeps future sessions viewable but blocks attendance submission until the session has started', () => {
+    assert.match(component, /hasSessionOccurred\(selectedSession\)/);
+    assert.match(component, /disabled=\{saving \|\| attendanceLoading \|\| roster\.length === 0 \|\| !sessionOccurred\}/);
+    assert.match(component, /This session has not started yet/);
+    // handleSave must refuse even if the button were somehow triggered.
+    assert.match(component, /if \(!hasSessionOccurred\(selectedSession\)\) \{\s*\n\s*setPanelError\(/);
+    // Sessions are still listed and selectable regardless of date.
+    assert.match(component, /onClick=\{\(\) => void openAttendance\(session\)\}/);
   });
 });
