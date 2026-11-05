@@ -124,12 +124,18 @@ function TeacherAttendancePanel({ classes }: { classes: ClassItem[] }) {
         sessionRequest<AttendanceRecord[]>(`/sessions/${session.id}/attendance`),
       ]);
       const activeEnrollments: EnrollmentItem[] = enrollmentResult.items;
-      const studentsResult = await apiClient.getStudents({ page: 1, pageSize: 100 });
-      const studentById = new Map(studentsResult.items.map((student) => [student.id, student]));
-      const classRoster = activeEnrollments
-        .map((enrollment) => studentById.get(enrollment.studentId))
-        .filter((student): student is StudentItem => Boolean(student))
-        .map(({ id, firstName, lastName, shahvarCode }) => ({ id, firstName, lastName, shahvarCode }));
+      const classRoster = await Promise.all(
+        activeEnrollments.map(async (enrollment) => {
+          // The API enforces that a teacher can read only students currently enrolled in their own class.
+          const student = await sessionRequest<StudentItem>(`/students/${enrollment.studentId}`);
+          return {
+            id: student.id,
+            firstName: student.firstName,
+            lastName: student.lastName,
+            shahvarCode: student.shahvarCode,
+          };
+        }),
+      );
 
       setRoster(classRoster);
       const saved = new Map(attendance.map((record) => [record.studentId, record.status]));
