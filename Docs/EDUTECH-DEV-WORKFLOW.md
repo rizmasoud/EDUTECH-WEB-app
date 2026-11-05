@@ -15,10 +15,11 @@ Before starting a task, inspect the current repository and identify the applicab
 Use the following order:
 
 1. Explicit product-owner decisions and instructions
-2. `EDUTECH-BUSINESS-RULES.md` for approved business rules
-3. `EDUTECH-MVP-ROADMAP.md` for product scope and priorities
-4. `EDUTECH-CURRENT-STATE.md` for the latest evidence-based implementation status
-5. Existing code, tests, migrations, and other technical documentation
+2. `Docs/product/mvp-scope.md` for approved MVP scope and decision history
+3. `EDUTECH-BUSINESS-RULES.md` for approved business rules
+4. `EDUTECH-MVP-ROADMAP.md` for implementation priorities
+5. `EDUTECH-CURRENT-STATE.md` for the latest evidence-based implementation status
+6. Existing code, tests, migrations, and other technical documentation
 
 If these sources conflict, report the conflict instead of silently choosing one.
 
