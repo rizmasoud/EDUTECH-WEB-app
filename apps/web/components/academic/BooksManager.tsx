@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { apiClient, BookItem, BookPartItem, BookSegmentItem } from '../../lib/api-client';
 import { useNotifications } from '../ui/NotificationProvider';
 import { InlineError } from '../ui/InlineError';
+import { SyllabusPanel } from './SyllabusPanel';
 import {
   BookOpen,
   Plus,
@@ -431,6 +432,9 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
                           })}
                         </div>
                       )}
+
+                      {/* Supervisor-only; renders nothing for other roles */}
+                      <SyllabusPanel key={book.id} book={book} isSupervisor={isSupervisor} />
                     </div>
                   )}
                 </div>
