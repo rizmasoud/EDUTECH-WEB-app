@@ -21,6 +21,7 @@ import {
   SYLLABUS_ITEM_TYPE_LABEL,
   WHOLE_BOOK_VALUE,
   emptyItemForm,
+  endSentence,
   hasSameScope,
   itemToForm,
   sortSyllabusItems,
@@ -60,6 +61,8 @@ export interface SyllabusPanelViewProps {
   actionError: string | null;
   syllabi: SyllabusDetail[];
   segmentOptions: SegmentOption[];
+  /** Segment choices failed to load. Independent of `loadError`: the syllabus list and its actions stay usable. */
+  segmentError: string | null;
   expandedId: string | null;
   itemsBySyllabus: Record<string, SyllabusItem[] | undefined>;
   detailLoadingId: string | null;
@@ -68,6 +71,7 @@ export interface SyllabusPanelViewProps {
   scopeDialog: ScopeDialogState | null;
   itemDialog: ItemDialogState | null;
   onRetry: () => void;
+  onRetrySegments: () => void;
   onToggle: (syllabusId: string) => void;
   onNewSyllabus: () => void;
   onEditSyllabus: (syllabus: SyllabusDetail) => void;
@@ -93,6 +97,7 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
     actionError,
     syllabi,
     segmentOptions,
+    segmentError,
     expandedId,
     itemsBySyllabus,
     detailLoadingId,
@@ -129,6 +134,28 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
 
       {actionError ? (
         <InlineError message={actionError} onDismiss={props.onDismissActionError} />
+      ) : null}
+
+      {segmentError && !loading && !loadError ? (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300"
+        >
+          <span className="flex items-start gap-1">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Segment choices could not be loaded. {endSentence(segmentError)} Syllabi and items can still be managed;
+              new syllabi are limited to the whole book until this loads.
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={props.onRetrySegments}
+            className="shrink-0 rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-200 hover:bg-slate-700"
+          >
+            Reload segments
+          </button>
+        </div>
       ) : null}
 
       {loading ? (
@@ -302,6 +329,7 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
           state={scopeDialog}
           bookName={bookName}
           segmentOptions={segmentOptions}
+          segmentError={segmentError}
           syllabi={syllabi}
           onSubmit={props.onSubmitScope}
           onClose={props.onCloseScope}
@@ -408,6 +436,7 @@ function SyllabusScopeDialog({
   state,
   bookName,
   segmentOptions,
+  segmentError,
   syllabi,
   onSubmit,
   onClose,
@@ -415,6 +444,7 @@ function SyllabusScopeDialog({
   state: ScopeDialogState;
   bookName: string;
   segmentOptions: SegmentOption[];
+  segmentError: string | null;
   syllabi: SyllabusDetail[];
   onSubmit: (segmentId: string) => void;
   onClose: () => void;
@@ -468,6 +498,11 @@ function SyllabusScopeDialog({
             ))}
           </select>
         </div>
+        {segmentError ? (
+          <p role="note" className="text-[11px] text-amber-300">
+            Segment choices could not be loaded. You can still choose Whole book.
+          </p>
+        ) : null}
         {duplicate ? (
           <p role="note" className="flex items-start gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

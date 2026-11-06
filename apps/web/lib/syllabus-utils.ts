@@ -229,6 +229,16 @@ export function planItemMove(
   ];
 }
 
+/**
+ * After a reorder finishes, reload the items only if that syllabus is still the expanded one. Reloading any other
+ * syllabus would start a detail request that invalidates the in-flight request of the syllabus now open (they
+ * share one "latest request" guard) and would show a loading state or error for a collapsed syllabus.
+ * A collapsed syllabus needs no refresh: expanding it always refetches.
+ */
+export function shouldRefreshItemsAfterReorder(expandedId: string | null, reorderedId: string): boolean {
+  return expandedId === reorderedId;
+}
+
 // ---- errors -----------------------------------------------------------------------------------------------
 
 /** Ends the text with a full stop unless it already ends a sentence (backend messages usually have none). */

@@ -16,6 +16,8 @@ import {
   type SyllabusPanelViewProps,
 } from '../../apps/web/components/academic/SyllabusPanelView';
 import type { SyllabusDetail, SyllabusItem } from '../../apps/web/lib/api-client';
+import { createLatestRequestGuard } from '../../apps/web/lib/attendance-session-utils';
+import { shouldRefreshItemsAfterReorder } from '../../apps/web/lib/syllabus-utils';
 
 const root = join(__dirname, '..', '..');
 const read = (file: string) => readFileSync(join(root, file), 'utf8');
@@ -61,6 +63,7 @@ function render(over: Partial<SyllabusPanelViewProps> = {}): string {
     actionError: null,
     syllabi: [],
     segmentOptions: [{ id: 'seg1', label: 'Part 1: Units > #1 Unit 1' }],
+    segmentError: null,
     expandedId: null,
     itemsBySyllabus: {},
     detailLoadingId: null,
@@ -69,6 +72,7 @@ function render(over: Partial<SyllabusPanelViewProps> = {}): string {
     scopeDialog: null,
     itemDialog: null,
     onRetry: noop,
+    onRetrySegments: noop,
     onToggle: noop,
     onNewSyllabus: noop,
     onEditSyllabus: noop,
@@ -399,7 +403,10 @@ describe('SyllabusPanel (container): data flow guards', () => {
 
   it('applies a response only if it is still the latest request, and invalidates on unmount', () => {
     assert.ok((src.match(/isLatest\(token\)/g) ?? []).length >= 6);
-    assert.match(src, /return \(\) => \{\s*listGuard\.invalidate\(\);\s*detailGuard\.invalidate\(\);/);
+    assert.match(
+      src,
+      /return \(\) => \{\s*listGuard\.invalidate\(\);\s*detailGuard\.invalidate\(\);\s*segmentGuard\.invalidate\(\);/,
+    );
   });
 
   it('reports a failed syllabus save inside the syllabus dialog, never through the list-load error', () => {
@@ -429,7 +436,7 @@ describe('SyllabusPanel (container): data flow guards', () => {
     const body = handler('handleMoveItem');
     assert.match(body, /planItemMove\(/);
     assert.match(body, /for \(const step of steps\) \{\s*await apiClient\.updateSyllabusItem\(step\.itemId, \{ sequenceOrder: step\.sequenceOrder \}\)/);
-    assert.match(body, /finally \{\s*await loadItems\(syllabusId\);\s*setReordering\(false\);/);
+    assert.match(body, /finally \{[\s\S]*await loadItems\(syllabusId\);[\s\S]*setReordering\(false\);/);
     assert.match(body, /partly changed/);
     assert.doesNotMatch(body, /setLoadError/);
   });
@@ -465,5 +472,170 @@ describe('Books area integration', () => {
     const teacherNav = /const TEACHER_NAV[^\n]*/.exec(page)![0];
     assert.doesNotMatch(teacherNav, /BOOKS/);
     assert.match(page, /\{mainSection === 'BOOKS' && <BooksManager isSupervisor=\{isSupervisor\} \/>\}/);
+  });
+});
+
+describe('regression: segment choices load independently of the syllabus list (view)', () => {
+  const failedSegments = {
+    syllabi: [wholeBook, unitOne],
+    segmentOptions: [],
+    segmentError: 'Failed to load book parts',
+  };
+
+  it('keeps the loaded syllabus list visible and "New Syllabus" enabled when segment choices fail', () => {
+    const html = render(failedSegments);
+    assert.match(html, /Whole book/);
+    assert.match(html, /Segment: Unit 1/);
+    assert.doesNotMatch(html, /No syllabus yet/);
+    assert.equal(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*New Syllabus/.exec(html)![0]), false);
+  });
+
+  it('reports the segment failure as its own notice with its own retry, not as a list failure', () => {
+    const html = render(failedSegments);
+    assert.match(html, /role="alert"/);
+    assert.match(html, /Segment choices could not be loaded\. Failed to load book parts\./);
+    assert.match(html, /new syllabi are limited to the whole book/);
+    assert.match(html, />Reload segments</);
+    assert.doesNotMatch(html, />Try again</, 'the list retry belongs to a list failure only');
+  });
+
+  it('keeps expanded items and every item action usable', () => {
+    const html = render({
+      ...failedSegments,
+      expandedId: 's-book',
+      itemsBySyllabus: { 's-book': [item('a', 1, { title: 'First' }), item('b', 2, { title: 'Second' })] },
+    });
+    assert.match(html, /First/);
+    assert.equal(isDisabled(buttonTag(html, 'Move First down')), false);
+    assert.equal(isDisabled(buttonTag(html, 'Edit Second')), false);
+    assert.equal(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Add Item/.exec(html)![0]), false);
+  });
+
+  it('still lets the Supervisor create a whole-book syllabus, and says why segments are missing', () => {
+    const html = render({ ...failedSegments, syllabi: [], scopeDialog: { mode: 'create', error: null, saving: false } });
+    assert.match(html, /<option value=""( selected="")?>Whole book<\/option>/);
+    assert.doesNotMatch(html, /<option value="seg1"/);
+    assert.match(html, /Segment choices could not be loaded\. You can still choose Whole book\./);
+    assert.ok(!isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]));
+  });
+
+  it('keeps the current segment selectable when editing a segment syllabus while choices are missing', () => {
+    const html = render({
+      ...failedSegments,
+      scopeDialog: { mode: 'edit', syllabus: unitOne, error: null, saving: false },
+    });
+    assert.match(html, /<option value="seg1" selected="">Unit 1<\/option>/);
+  });
+
+  it('shows no segment notice when segment choices loaded, or while the list itself is loading or failed', () => {
+    assert.doesNotMatch(render({ syllabi: [wholeBook] }), /Segment choices could not be loaded/);
+    assert.doesNotMatch(render({ ...failedSegments, loading: true }), /Reload segments/);
+    assert.doesNotMatch(render({ ...failedSegments, loadError: 'Failed to load syllabi' }), /Reload segments/);
+  });
+
+  it('a real list failure is still reported as a list failure with its retry', () => {
+    const html = render({ loadError: 'Failed to load syllabi', segmentError: null });
+    assert.match(html, />Try again</);
+    assert.match(html, /Failed to load syllabi/);
+  });
+});
+
+describe('regression: segment choices load independently of the syllabus list (container)', () => {
+  const src = read('apps/web/components/academic/SyllabusPanel.tsx');
+
+  function callback(name: string): string {
+    const start = src.indexOf(`const ${name} = useCallback(`);
+    assert.ok(start >= 0, `${name} not found`);
+    return src.slice(start, src.indexOf('\n  }, [', start));
+  }
+
+  it('loads the syllabus list without touching parts or segments', () => {
+    const body = callback('loadSyllabi');
+    assert.match(body, /await apiClient\.getSyllabi\(\{ bookId: book\.id \}\)/);
+    assert.doesNotMatch(body, /getBookParts|getBookSegments|setSegmentOptions|setSegmentError/);
+  });
+
+  it('loads segment choices separately, reporting failure only through segmentError', () => {
+    const body = callback('loadSegmentOptions');
+    assert.match(body, /segmentGuard\.begin\(\)/);
+    assert.match(body, /getBookParts\(book\.id\)/);
+    assert.match(body, /getBookSegments\(part\.id\)/);
+    assert.match(body, /setSegmentError\(describeSyllabusError\(err, 'Failed to load segments'\)\)/);
+    assert.doesNotMatch(body, /setLoadError|setLoading|setSyllabi|listGuard/);
+  });
+
+  it('never fetches the syllabus list and the segment choices in one Promise.all', () => {
+    assert.doesNotMatch(src, /Promise\.all\(\[\s*apiClient\.getSyllabi/);
+    assert.doesNotMatch(src, /Promise\.all\(\[[^\]]*getBookParts/);
+  });
+
+  it('starts both loads from the mount effect and gives the view a separate retry for each', () => {
+    const effect = src.slice(src.indexOf('useEffect(() => {'));
+    assert.match(effect, /void loadSyllabi\(\);\s*void loadSegmentOptions\(\);/);
+    assert.match(src, /onRetry=\{\(\) => void loadSyllabi\(\)\}/);
+    assert.match(src, /onRetrySegments=\{\(\) => void loadSegmentOptions\(\)\}/);
+    assert.match(src, /segmentError=\{segmentError\}/);
+  });
+
+  it('does not reload segment choices after saving a syllabus (only the list changes)', () => {
+    const body = src.slice(src.indexOf('const handleSubmitScope'), src.indexOf('const handleSubmitItem'));
+    assert.match(body, /await loadSyllabi\(\)/);
+    assert.doesNotMatch(body, /loadSegmentOptions/);
+  });
+});
+
+describe('regression: a finished reorder must not cancel the detail request of the open syllabus', () => {
+  const src = read('apps/web/components/academic/SyllabusPanel.tsx');
+
+  /**
+   * The container shares one "latest request" guard for every syllabus detail request. These two cases model the
+   * race on that real guard: syllabus A is being reordered, the Supervisor expands syllabus B (its detail
+   * request starts), then A's reorder finishes.
+   */
+  it('model: reloading the reordered syllabus unconditionally makes B\'s response stale (the old bug)', () => {
+    const guard = createLatestRequestGuard();
+    const tokenB = guard.begin(); // expand B -> loadItems(B)
+    guard.begin(); // reorder of A finishes -> loadItems(A) restarts the shared guard
+    assert.equal(guard.isLatest(tokenB), false, 'B\'s response would be discarded and B left empty');
+  });
+
+  it('model: with the fix, A\'s reorder finishing leaves B\'s request as the latest', () => {
+    const guard = createLatestRequestGuard();
+    const tokenB = guard.begin();
+    if (shouldRefreshItemsAfterReorder('B', 'A')) guard.begin(); // skipped: B is the open syllabus
+    assert.equal(guard.isLatest(tokenB), true);
+  });
+
+  it('model: A is still refreshed when it is the open syllabus (the reordered list is re-read)', () => {
+    const guard = createLatestRequestGuard();
+    let reloaded = false;
+    if (shouldRefreshItemsAfterReorder('A', 'A')) {
+      guard.begin();
+      reloaded = true;
+    }
+    assert.equal(reloaded, true);
+  });
+
+  const moveBody = () => {
+    const start = src.indexOf('const handleMoveItem = async');
+    return src.slice(start, src.indexOf('\n  return (', start));
+  };
+
+  it('container: the reorder finally block reloads only behind shouldRefreshItemsAfterReorder', () => {
+    const body = moveBody();
+    const finallyBlock = body.slice(body.indexOf('} finally {'));
+    const guardIdx = finallyBlock.indexOf('if (shouldRefreshItemsAfterReorder(expandedIdRef.current, syllabusId))');
+    const reloadIdx = finallyBlock.indexOf('await loadItems(syllabusId)');
+    assert.ok(guardIdx >= 0, 'reload is guarded');
+    assert.ok(reloadIdx > guardIdx, 'reload happens inside the guard');
+    assert.equal((body.match(/await loadItems\(/g) ?? []).length, 1, 'no unconditional reload elsewhere in the handler');
+    assert.ok(finallyBlock.indexOf('setReordering(false)') > reloadIdx, 'the lock is always released');
+  });
+
+  it('container: the expanded id is mirrored in a ref on both expand and collapse', () => {
+    assert.match(src, /const expandedIdRef = useRef<string \| null>\(null\);/);
+    assert.equal((src.match(/expandedIdRef\.current = /g) ?? []).length, 2);
+    assert.match(src, /expandedIdRef\.current = null;\s*\n\s*setExpandedId\(null\);/);
+    assert.match(src, /expandedIdRef\.current = syllabusId;\s*\n\s*setExpandedId\(syllabusId\);/);
   });
 });

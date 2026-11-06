@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient, type BookItem, type SyllabusDetail, type SyllabusItem } from '../../lib/api-client';
 import { createLatestRequestGuard } from '../../lib/attendance-session-utils';
 import {
@@ -10,6 +10,7 @@ import {
   describeSyllabusError,
   endSentence,
   planItemMove,
+  shouldRefreshItemsAfterReorder,
   sortSyllabi,
   sortSyllabusItems,
   validateItemForm,
@@ -28,7 +29,9 @@ interface SyllabusPanelProps {
  * Supervisor syllabus management for one book: syllabi per book/segment, their items, and item order.
  *
  * Error placement (same split as BooksManager/ClassesManager):
- *  - list/segment load failure  -> `loadError`, with a retry
+ *  - syllabus list load failure -> `loadError`, with a retry
+ *  - segment choices failure    -> `segmentError`, a notice with its own retry; it never hides the syllabus list,
+ *                                  because syllabi and segment choices load independently
  *  - save failure in a dialog   -> shown INSIDE that dialog (`scopeDialog.error` / `itemDialog.error`)
  *  - reorder failure            -> `actionError`, above a list that stays visible
  * The API is the authority for validation; its messages are shown unchanged.
@@ -40,13 +43,17 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
   // One guard per kind of request, so only the newest response of each may update state.
   const [listGuard] = useState(() => createLatestRequestGuard());
   const [detailGuard] = useState(() => createLatestRequestGuard());
+  const [segmentGuard] = useState(() => createLatestRequestGuard());
 
   const [syllabi, setSyllabi] = useState<SyllabusDetail[]>([]);
   const [segmentOptions, setSegmentOptions] = useState<SegmentOption[]>([]);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isSupervisor);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Mirrors `expandedId` for async code, whose closures would otherwise see a stale value (see handleMoveItem).
+  const expandedIdRef = useRef<string | null>(null);
   const [itemsBySyllabus, setItemsBySyllabus] = useState<Record<string, SyllabusItem[] | undefined>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -59,15 +66,9 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [list, parts] = await Promise.all([
-        apiClient.getSyllabi({ bookId: book.id }),
-        apiClient.getBookParts(book.id),
-      ]);
-      const segments = await Promise.all(parts.map((part) => apiClient.getBookSegments(part.id)));
+      const list = await apiClient.getSyllabi({ bookId: book.id });
       if (!listGuard.isLatest(token)) return;
-      const segmentsByPart = Object.fromEntries(parts.map((part, i) => [part.id, segments[i]]));
       setSyllabi(sortSyllabi(list));
-      setSegmentOptions(buildSegmentOptions(parts, segmentsByPart));
     } catch (err) {
       if (!listGuard.isLatest(token)) return;
       setLoadError(describeSyllabusError(err, 'Failed to load syllabi'));
@@ -75,6 +76,23 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
       if (listGuard.isLatest(token)) setLoading(false);
     }
   }, [book.id, listGuard]);
+
+  // Segment choices only feed the scope selector, so a failure here must not affect the syllabus list.
+  const loadSegmentOptions = useCallback(async () => {
+    const token = segmentGuard.begin();
+    setSegmentError(null);
+    try {
+      const parts = await apiClient.getBookParts(book.id);
+      const segments = await Promise.all(parts.map((part) => apiClient.getBookSegments(part.id)));
+      if (!segmentGuard.isLatest(token)) return;
+      const segmentsByPart = Object.fromEntries(parts.map((part, i) => [part.id, segments[i]]));
+      setSegmentOptions(buildSegmentOptions(parts, segmentsByPart));
+    } catch (err) {
+      if (!segmentGuard.isLatest(token)) return;
+      setSegmentOptions([]);
+      setSegmentError(describeSyllabusError(err, 'Failed to load segments'));
+    }
+  }, [book.id, segmentGuard]);
 
   const loadItems = useCallback(
     async (syllabusId: string) => {
@@ -98,11 +116,13 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
   useEffect(() => {
     if (!isSupervisor) return;
     void loadSyllabi();
+    void loadSegmentOptions();
     return () => {
       listGuard.invalidate();
       detailGuard.invalidate();
+      segmentGuard.invalidate();
     };
-  }, [isSupervisor, loadSyllabi, listGuard, detailGuard]);
+  }, [isSupervisor, loadSyllabi, loadSegmentOptions, listGuard, detailGuard, segmentGuard]);
 
   const handleToggle = (syllabusId: string) => {
     setActionError(null);
@@ -110,9 +130,11 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
     if (expandedId === syllabusId) {
       detailGuard.invalidate();
       setDetailLoadingId(null);
+      expandedIdRef.current = null;
       setExpandedId(null);
       return;
     }
+    expandedIdRef.current = syllabusId;
     setExpandedId(syllabusId);
     void loadItems(syllabusId); // always refetch: another Supervisor may have changed the items
   };
@@ -190,7 +212,11 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
         `${endSentence(describeSyllabusError(err, 'Failed to reorder items'))} The order may be partly changed; the list was refreshed.`,
       );
     } finally {
-      await loadItems(syllabusId);
+      // Reload the real order, but only if this syllabus is still the open one: loadItems restarts the shared
+      // detail guard, so reloading a collapsed syllabus would discard the response for the one now expanded.
+      if (shouldRefreshItemsAfterReorder(expandedIdRef.current, syllabusId)) {
+        await loadItems(syllabusId);
+      }
       setReordering(false);
     }
   };
@@ -204,6 +230,7 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
       actionError={actionError}
       syllabi={syllabi}
       segmentOptions={segmentOptions}
+      segmentError={segmentError}
       expandedId={expandedId}
       itemsBySyllabus={itemsBySyllabus}
       detailLoadingId={detailLoadingId}
@@ -212,6 +239,7 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
       scopeDialog={scopeDialog}
       itemDialog={itemDialog}
       onRetry={() => void loadSyllabi()}
+      onRetrySegments={() => void loadSegmentOptions()}
       onToggle={handleToggle}
       onNewSyllabus={() => setScopeDialog({ mode: 'create', error: null, saving: false })}
       onEditSyllabus={(syllabus) => setScopeDialog({ mode: 'edit', syllabus, error: null, saving: false })}

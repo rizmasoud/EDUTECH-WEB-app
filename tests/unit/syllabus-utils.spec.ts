@@ -22,6 +22,7 @@ import {
   itemToForm,
   nextSequenceOrder,
   planItemMove,
+  shouldRefreshItemsAfterReorder,
   sortSyllabi,
   sortSyllabusItems,
   syllabusScopeLabel,
@@ -205,6 +206,12 @@ describe('moving items up and down', () => {
     const items = [item('z', 10), item('x', 3), item('y', 7)];
     assert.deepEqual(applySteps(items, planItemMove(items, 'y', 'up')!), ['y', 'x', 'z']);
     assert.deepEqual(applySteps(items, planItemMove(items, 'x', 'down')!), ['y', 'x', 'z']);
+  });
+
+  it('refreshes the items after a reorder only when that syllabus is still the expanded one', () => {
+    assert.equal(shouldRefreshItemsAfterReorder('a', 'a'), true);
+    assert.equal(shouldRefreshItemsAfterReorder('b', 'a'), false, 'another syllabus is open now');
+    assert.equal(shouldRefreshItemsAfterReorder(null, 'a'), false, 'it was collapsed meanwhile');
   });
 
   it('returns null for the first item up, the last item down and unknown ids', () => {
