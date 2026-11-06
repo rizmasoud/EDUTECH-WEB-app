@@ -3,6 +3,16 @@
  * Talks to the backend via Next.js proxy route /api/v1
  */
 
+import type {
+  CreateSyllabusDto,
+  CreateSyllabusItemDto,
+  FindSyllabiFilterDto,
+  SyllabusDetailDto,
+  SyllabusItemDto,
+  UpdateSyllabusDto,
+  UpdateSyllabusItemDto,
+} from '@edutech/shared';
+
 export interface ApiResponse<T = any> {
   data?: T;
   error?: {
@@ -60,6 +70,14 @@ export interface BookSegmentItem {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/**
+ * The shared syllabus DTOs describe timestamps as `Date`; over JSON they arrive as ISO strings. Everything else is
+ * the shared contract unchanged, so the request and response shapes stay in one place (packages/shared).
+ */
+type JsonDates<T> = { [K in keyof T]: T[K] extends Date ? string : T[K] };
+export type SyllabusItem = JsonDates<SyllabusItemDto>;
+export type SyllabusDetail = Omit<JsonDates<SyllabusDetailDto>, 'items'> & { items?: SyllabusItem[] };
 
 export interface StudentItem {
   id: string;
@@ -463,6 +481,52 @@ class ApiClient {
       body: JSON.stringify(data),
     });
   }
+
+  // Syllabi and syllabus items (writes are Supervisor-only on the API)
+  /** GET /syllabi. The list carries book and segment names but no items; load a syllabus for its items. */
+  async getSyllabi(filter: FindSyllabiFilterDto = {}): Promise<SyllabusDetail[]> {
+    const params = new URLSearchParams();
+    if (filter.bookId) params.set('bookId', filter.bookId);
+    if (filter.bookSegmentId) params.set('bookSegmentId', filter.bookSegmentId);
+    const query = params.toString();
+    const res = await this.request<any>(`/syllabi${query ? `?${query}` : ''}`);
+    return Array.isArray(res) ? res : res?.items || [];
+  }
+
+  /** GET /syllabi/:id. Includes the syllabus items, ordered by `sequenceOrder`. */
+  async getSyllabus(id: string): Promise<SyllabusDetail> {
+    return this.request<SyllabusDetail>(`/syllabi/${encodeURIComponent(id)}`);
+  }
+
+  async createSyllabus(data: CreateSyllabusDto): Promise<SyllabusDetail> {
+    return this.request<SyllabusDetail>('/syllabi', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSyllabus(id: string, data: UpdateSyllabusDto): Promise<SyllabusDetail> {
+    return this.request<SyllabusDetail>(`/syllabi/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async addSyllabusItem(syllabusId: string, data: CreateSyllabusItemDto): Promise<SyllabusItem> {
+    return this.request<SyllabusItem>(`/syllabi/${encodeURIComponent(syllabusId)}/items`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSyllabusItem(itemId: string, data: UpdateSyllabusItemDto): Promise<SyllabusItem> {
+    return this.request<SyllabusItem>(`/syllabus-items/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+  // Deliberately no deleteSyllabusItem: the API cannot tell whether an item is referenced by a Lesson Plan,
+  // so the UI offers no delete (see SYLLABUS_ITEM_DELETE_POLICY in lib/syllabus-utils.ts).
 
   // Students
   async getStudents(query: { search?: string; isActive?: boolean; page?: number; pageSize?: number } = {}): Promise<{ items: StudentItem[]; total: number }> {
