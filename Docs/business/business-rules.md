@@ -673,10 +673,14 @@ Teachers must not modify the canonical Syllabus.
 
 ## 15.2 Syllabus Scope
 
-A Syllabus may belong to:
+A Syllabus is defined per Book Part, never per Segment.
 
-- A Book
-- Optionally a specific BookSegment
+- A Book with Parts has exactly one Syllabus per Part. A whole-book Syllabus is not allowed for it.
+- A Book without Parts has exactly one whole-book Syllabus. No Part-specific Syllabus applies.
+- BookSegments are subdivisions inside a Part. They are never a Syllabus scope: a Syllabus cannot be created for a Segment, and all Segments of a Part share the Part's Syllabus.
+- Duplicate Syllabi for the same Book + Part (or the same whole book) are not allowed.
+- Lesson Plan creation copies the Syllabus of the class's exact Book + Part (the whole-book Syllabus for a Book without Parts). If it does not exist, creation fails with a clear error; there is no fallback to another Part or Segment.
+- Legacy Syllabi scoped to a Segment (created before this rule) are never deleted or merged automatically. They are not used for Lesson Plans until a Supervisor moves them to their Part.
 
 Syllabus items may represent requirements such as:
 

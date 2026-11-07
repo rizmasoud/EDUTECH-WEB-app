@@ -5,7 +5,7 @@ import { apiClient, type BookItem, type SyllabusDetail, type SyllabusItem } from
 import { createLatestRequestGuard } from '../../lib/attendance-session-utils';
 import {
   buildCreateSyllabusPayload,
-  buildSegmentOptions,
+  buildPartOptions,
   buildUpdateSyllabusPayload,
   describeSyllabusError,
   endSentence,
@@ -15,7 +15,7 @@ import {
   sortSyllabusItems,
   validateItemForm,
   type ItemFormValues,
-  type SegmentOption,
+  type PartOption,
 } from '../../lib/syllabus-utils';
 import { useNotifications } from '../ui/NotificationProvider';
 import { SyllabusPanelView, type ItemDialogState, type ScopeDialogState } from './SyllabusPanelView';
@@ -26,12 +26,14 @@ interface SyllabusPanelProps {
 }
 
 /**
- * Supervisor syllabus management for one book: syllabi per book/segment, their items, and item order.
+ * Supervisor syllabus management for one book: one syllabus per book part (or one whole-book syllabus when the
+ * book has no parts), their items, and item order. Segments are never a syllabus scope.
  *
  * Error placement (same split as BooksManager/ClassesManager):
  *  - syllabus list load failure -> `loadError`, with a retry
- *  - segment choices failure    -> `segmentError`, a notice with its own retry; it never hides the syllabus list,
- *                                  because syllabi and segment choices load independently
+ *  - part choices failure       -> `partError`, a notice with its own retry; it never hides the syllabus list,
+ *                                  because syllabi and part choices load independently; new syllabi cannot be
+ *                                  created until the parts are known (whether the book has parts decides the scope)
  *  - save failure in a dialog   -> shown INSIDE that dialog (`scopeDialog.error` / `itemDialog.error`)
  *  - reorder failure            -> `actionError`, above a list that stays visible
  * The API is the authority for validation; its messages are shown unchanged.
@@ -43,11 +45,13 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
   // One guard per kind of request, so only the newest response of each may update state.
   const [listGuard] = useState(() => createLatestRequestGuard());
   const [detailGuard] = useState(() => createLatestRequestGuard());
-  const [segmentGuard] = useState(() => createLatestRequestGuard());
+  const [partGuard] = useState(() => createLatestRequestGuard());
 
   const [syllabi, setSyllabi] = useState<SyllabusDetail[]>([]);
-  const [segmentOptions, setSegmentOptions] = useState<SegmentOption[]>([]);
-  const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [partOptions, setPartOptions] = useState<PartOption[]>([]);
+  // True once the book's parts have been loaded: only then is it known whether the book has parts.
+  const [partsReady, setPartsReady] = useState(false);
+  const [partError, setPartError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isSupervisor);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -77,22 +81,23 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
     }
   }, [book.id, listGuard]);
 
-  // Segment choices only feed the scope selector, so a failure here must not affect the syllabus list.
-  const loadSegmentOptions = useCallback(async () => {
-    const token = segmentGuard.begin();
-    setSegmentError(null);
+  // The parts feed the scope selector (and decide whether the book is Part-scoped), so a failure here must not
+  // affect the syllabus list. Segments are deliberately not loaded: they are never a syllabus scope.
+  const loadPartOptions = useCallback(async () => {
+    const token = partGuard.begin();
+    setPartError(null);
+    setPartsReady(false);
     try {
       const parts = await apiClient.getBookParts(book.id);
-      const segments = await Promise.all(parts.map((part) => apiClient.getBookSegments(part.id)));
-      if (!segmentGuard.isLatest(token)) return;
-      const segmentsByPart = Object.fromEntries(parts.map((part, i) => [part.id, segments[i]]));
-      setSegmentOptions(buildSegmentOptions(parts, segmentsByPart));
+      if (!partGuard.isLatest(token)) return;
+      setPartOptions(buildPartOptions(parts));
+      setPartsReady(true);
     } catch (err) {
-      if (!segmentGuard.isLatest(token)) return;
-      setSegmentOptions([]);
-      setSegmentError(describeSyllabusError(err, 'Failed to load segments'));
+      if (!partGuard.isLatest(token)) return;
+      setPartOptions([]);
+      setPartError(describeSyllabusError(err, 'Failed to load book parts'));
     }
-  }, [book.id, segmentGuard]);
+  }, [book.id, partGuard]);
 
   const loadItems = useCallback(
     async (syllabusId: string) => {
@@ -116,13 +121,13 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
   useEffect(() => {
     if (!isSupervisor) return;
     void loadSyllabi();
-    void loadSegmentOptions();
+    void loadPartOptions();
     return () => {
       listGuard.invalidate();
       detailGuard.invalidate();
-      segmentGuard.invalidate();
+      partGuard.invalidate();
     };
-  }, [isSupervisor, loadSyllabi, loadSegmentOptions, listGuard, detailGuard, segmentGuard]);
+  }, [isSupervisor, loadSyllabi, loadPartOptions, listGuard, detailGuard, partGuard]);
 
   const handleToggle = (syllabusId: string) => {
     setActionError(null);
@@ -139,14 +144,19 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
     void loadItems(syllabusId); // always refetch: another Supervisor may have changed the items
   };
 
-  const handleSubmitScope = async (segmentId: string) => {
+  const handleSubmitScope = async (partId: string) => {
     const dialog = scopeDialog;
     if (!dialog || dialog.saving) return;
     const fail = (error: string) => setScopeDialog((cur) => (cur ? { ...cur, saving: false, error } : cur));
+    if (!partsReady) {
+      fail('The book parts have not loaded yet, so the scope cannot be checked. Reload the parts and try again.');
+      return;
+    }
+    const hasParts = partOptions.length > 0;
 
     const editing = dialog.mode === 'edit' && dialog.syllabus ? dialog.syllabus : null;
-    const create = editing ? null : buildCreateSyllabusPayload(book.id, segmentId);
-    const update = editing ? buildUpdateSyllabusPayload(editing, segmentId) : null;
+    const create = editing ? null : buildCreateSyllabusPayload(book.id, partId, hasParts);
+    const update = editing ? buildUpdateSyllabusPayload(editing, partId, hasParts) : null;
     const invalid = create && !create.ok ? create.error : update && !update.ok ? update.error : null;
     if (invalid) {
       fail(invalid);
@@ -157,7 +167,7 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
     try {
       if (editing && update?.ok) {
         await apiClient.updateSyllabus(editing.id, update.data);
-        notifier.success('Syllabus scope updated.');
+        notifier.success('Syllabus moved.');
       } else if (create?.ok) {
         await apiClient.createSyllabus(create.data);
         notifier.success(`Syllabus created for "${book.name}".`);
@@ -229,8 +239,9 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
       loadError={loadError}
       actionError={actionError}
       syllabi={syllabi}
-      segmentOptions={segmentOptions}
-      segmentError={segmentError}
+      partOptions={partOptions}
+      partsReady={partsReady}
+      partError={partError}
       expandedId={expandedId}
       itemsBySyllabus={itemsBySyllabus}
       detailLoadingId={detailLoadingId}
@@ -239,11 +250,11 @@ export function SyllabusPanel({ book, isSupervisor }: SyllabusPanelProps) {
       scopeDialog={scopeDialog}
       itemDialog={itemDialog}
       onRetry={() => void loadSyllabi()}
-      onRetrySegments={() => void loadSegmentOptions()}
+      onRetryParts={() => void loadPartOptions()}
       onToggle={handleToggle}
       onNewSyllabus={() => setScopeDialog({ mode: 'create', error: null, saving: false })}
       onEditSyllabus={(syllabus) => setScopeDialog({ mode: 'edit', syllabus, error: null, saving: false })}
-      onSubmitScope={(segmentId) => void handleSubmitScope(segmentId)}
+      onSubmitScope={(partId) => void handleSubmitScope(partId)}
       onCloseScope={() => setScopeDialog((cur) => (cur?.saving ? cur : null))}
       onAddItem={(syllabusId) => setItemDialog({ syllabusId, error: null, saving: false })}
       onEditItem={(syllabusId, item) => setItemDialog({ syllabusId, item, error: null, saving: false })}

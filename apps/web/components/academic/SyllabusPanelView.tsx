@@ -15,7 +15,8 @@ import {
 import type { SyllabusDetail, SyllabusItem } from '../../lib/api-client';
 import { InlineError } from '../ui/InlineError';
 import {
-  DUPLICATE_SCOPE_NOTICE,
+  DUPLICATE_PART_MESSAGE,
+  DUPLICATE_WHOLE_BOOK_MESSAGE,
   SYLLABUS_ITEM_DELETE_POLICY,
   SYLLABUS_ITEM_TYPES,
   SYLLABUS_ITEM_TYPE_LABEL,
@@ -23,11 +24,12 @@ import {
   emptyItemForm,
   endSentence,
   hasSameScope,
+  isLegacySegmentSyllabus,
   itemToForm,
   sortSyllabusItems,
   syllabusScopeLabel,
   type ItemFormValues,
-  type SegmentOption,
+  type PartOption,
 } from '../../lib/syllabus-utils';
 
 /**
@@ -60,9 +62,12 @@ export interface SyllabusPanelViewProps {
   /** Failure of a reorder; shown above the list, which stays visible. */
   actionError: string | null;
   syllabi: SyllabusDetail[];
-  segmentOptions: SegmentOption[];
-  /** Segment choices failed to load. Independent of `loadError`: the syllabus list and its actions stay usable. */
-  segmentError: string | null;
+  /** The book's parts (empty for a book without parts, in which case only the whole-book scope applies). */
+  partOptions: PartOption[];
+  /** True once the parts loaded; until then it is unknown whether the book is Part-scoped. */
+  partsReady: boolean;
+  /** Part choices failed to load. Independent of `loadError`: the syllabus list and its actions stay usable. */
+  partError: string | null;
   expandedId: string | null;
   itemsBySyllabus: Record<string, SyllabusItem[] | undefined>;
   detailLoadingId: string | null;
@@ -71,11 +76,11 @@ export interface SyllabusPanelViewProps {
   scopeDialog: ScopeDialogState | null;
   itemDialog: ItemDialogState | null;
   onRetry: () => void;
-  onRetrySegments: () => void;
+  onRetryParts: () => void;
   onToggle: (syllabusId: string) => void;
   onNewSyllabus: () => void;
   onEditSyllabus: (syllabus: SyllabusDetail) => void;
-  onSubmitScope: (segmentId: string) => void;
+  onSubmitScope: (partId: string) => void;
   onCloseScope: () => void;
   onAddItem: (syllabusId: string) => void;
   onEditItem: (syllabusId: string, item: SyllabusItem) => void;
@@ -96,8 +101,9 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
     loadError,
     actionError,
     syllabi,
-    segmentOptions,
-    segmentError,
+    partOptions,
+    partsReady,
+    partError,
     expandedId,
     itemsBySyllabus,
     detailLoadingId,
@@ -118,13 +124,13 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
             Syllabus
           </span>
           <p className="mt-0.5 text-[10px] text-slate-500">
-            Learning items for {bookName}, for the whole book or for one segment.
+            Learning items for {bookName}: one syllabus per book part, or one for the whole book when it has no parts.
           </p>
         </div>
         <button
           type="button"
           onClick={props.onNewSyllabus}
-          disabled={loading || Boolean(loadError)}
+          disabled={loading || Boolean(loadError) || !partsReady}
           className="flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-indigo-300 transition hover:bg-slate-700 disabled:opacity-50"
         >
           <Plus className="h-3 w-3" aria-hidden="true" />
@@ -136,7 +142,7 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
         <InlineError message={actionError} onDismiss={props.onDismissActionError} />
       ) : null}
 
-      {segmentError && !loading && !loadError ? (
+      {partError && !loading && !loadError ? (
         <div
           role="alert"
           className="flex items-start justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300"
@@ -144,16 +150,16 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
           <span className="flex items-start gap-1">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
-              Segment choices could not be loaded. {endSentence(segmentError)} Syllabi and items can still be managed;
-              new syllabi are limited to the whole book until this loads.
+              Book parts could not be loaded. {endSentence(partError)} Existing syllabi and items can still be managed;
+              new syllabi cannot be created or moved until the parts load.
             </span>
           </span>
           <button
             type="button"
-            onClick={props.onRetrySegments}
+            onClick={props.onRetryParts}
             className="shrink-0 rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-200 hover:bg-slate-700"
           >
-            Reload segments
+            Reload parts
           </button>
         </div>
       ) : null}
@@ -178,7 +184,7 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-center text-slate-500">
           <p className="font-semibold text-slate-400">No syllabus yet</p>
           <p className="mt-1 text-[11px]">
-            Create one for the whole book or for a single segment, then add its learning items.
+            Create one for a book part (or for the whole book when it has no parts), then add its learning items.
           </p>
         </div>
       ) : (
@@ -203,6 +209,11 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
                     <span dir="auto" className="truncate font-semibold">
                       {syllabusScopeLabel(syllabus)}
                     </span>
+                    {isLegacySegmentSyllabus(syllabus) ? (
+                      <span className="shrink-0 rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                        Not used - move to its part
+                      </span>
+                    ) : null}
                     {items ? (
                       <span className="shrink-0 text-[10px] text-slate-500">
                         {items.length} {items.length === 1 ? 'item' : 'items'}
@@ -212,8 +223,8 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
                   <button
                     type="button"
                     onClick={() => props.onEditSyllabus(syllabus)}
-                    title="Change scope"
-                    aria-label={`Change scope of ${syllabusScopeLabel(syllabus)}`}
+                    title={isLegacySegmentSyllabus(syllabus) ? "Move to a book part" : "Change book part"}
+                    aria-label={`Change book part of ${syllabusScopeLabel(syllabus)}`}
                     className="shrink-0 rounded bg-slate-800 p-1.5 text-slate-300 transition hover:bg-slate-700"
                   >
                     <Edit2 className="h-3 w-3" aria-hidden="true" />
@@ -328,8 +339,9 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
           key={scopeDialog.syllabus?.id ?? 'new'}
           state={scopeDialog}
           bookName={bookName}
-          segmentOptions={segmentOptions}
-          segmentError={segmentError}
+          partOptions={partOptions}
+          partsReady={partsReady}
+          partError={partError}
           syllabi={syllabi}
           onSubmit={props.onSubmitScope}
           onClose={props.onCloseScope}
@@ -405,10 +417,12 @@ function DialogActions({
   onClose,
   saving,
   submitLabel,
+  disabled = false,
 }: {
   onClose: () => void;
   saving: boolean;
   submitLabel: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-end gap-3 border-t border-slate-800 pt-3">
@@ -422,7 +436,7 @@ function DialogActions({
       </button>
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || disabled}
         className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
       >
         {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
@@ -435,38 +449,36 @@ function DialogActions({
 function SyllabusScopeDialog({
   state,
   bookName,
-  segmentOptions,
-  segmentError,
+  partOptions,
+  partsReady,
+  partError,
   syllabi,
   onSubmit,
   onClose,
 }: {
   state: ScopeDialogState;
   bookName: string;
-  segmentOptions: SegmentOption[];
-  segmentError: string | null;
+  partOptions: PartOption[];
+  partsReady: boolean;
+  partError: string | null;
   syllabi: SyllabusDetail[];
-  onSubmit: (segmentId: string) => void;
+  onSubmit: (partId: string) => void;
   onClose: () => void;
 }) {
   const id = useId();
   const editing = state.mode === 'edit';
-  const [segmentId, setSegmentId] = useState(state.syllabus?.bookSegmentId ?? WHOLE_BOOK_VALUE);
-
-  // Keep the current segment selectable even if its options failed to load.
-  const options =
-    state.syllabus?.bookSegmentId && !segmentOptions.some((o) => o.id === state.syllabus?.bookSegmentId)
-      ? [
-          ...segmentOptions,
-          { id: state.syllabus.bookSegmentId, label: state.syllabus.bookSegment?.name ?? 'Current segment' },
-        ]
-      : segmentOptions;
-  const duplicate = hasSameScope(syllabi, segmentId || null, state.syllabus?.id);
+  const hasParts = partOptions.length > 0;
+  // A book with parts: the parts are the only scopes (never the whole book, never a segment).
+  // A book without parts: the whole book is the only scope. A legacy segment syllabus starts with no part chosen.
+  const [partId, setPartId] = useState(state.syllabus?.bookPartId ?? WHOLE_BOOK_VALUE);
+  const duplicate = hasSameScope(syllabi, partId || null, state.syllabus?.id);
+  const duplicateMessage = hasParts ? DUPLICATE_PART_MESSAGE : DUPLICATE_WHOLE_BOOK_MESSAGE;
+  const canSubmit = partsReady && !duplicate && (!hasParts || partId !== WHOLE_BOOK_VALUE);
 
   return (
     <DialogShell
       titleId={`${id}-title`}
-      title={editing ? 'Change Syllabus Scope' : 'New Syllabus'}
+      title={editing ? (state.syllabus && isLegacySegmentSyllabus(state.syllabus) ? 'Move Syllabus to a Book Part' : 'Change Book Part') : 'New Syllabus'}
       subtitle={bookName}
       onClose={onClose}
       closeDisabled={state.saving}
@@ -475,41 +487,61 @@ function SyllabusScopeDialog({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit(segmentId);
+          if (canSubmit) onSubmit(partId);
         }}
         className="space-y-4 text-xs"
       >
         <InlineError message={state.error} />
         <div>
           <label htmlFor={`${id}-scope`} className="mb-1 block font-semibold text-slate-300">
-            Scope *
+            {hasParts ? 'Book part *' : 'Scope *'}
           </label>
           <select
             id={`${id}-scope`}
-            value={segmentId}
-            onChange={(e) => setSegmentId(e.target.value)}
+            value={partId}
+            onChange={(e) => setPartId(e.target.value)}
+            disabled={!partsReady}
             className={FIELD}
           >
-            <option value={WHOLE_BOOK_VALUE}>Whole book</option>
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
+            {hasParts ? (
+              <>
+                <option value={WHOLE_BOOK_VALUE} disabled>
+                  Choose a book part
+                </option>
+                {partOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </>
+            ) : (
+              <option value={WHOLE_BOOK_VALUE}>Whole book (this book has no parts)</option>
+            )}
           </select>
         </div>
-        {segmentError ? (
+        {state.syllabus && isLegacySegmentSyllabus(state.syllabus) ? (
           <p role="note" className="text-[11px] text-amber-300">
-            Segment choices could not be loaded. You can still choose Whole book.
+            This syllabus was created for a segment ({state.syllabus.bookSegment?.name ?? 'unknown'}). Segments are no
+            longer a syllabus scope, so it is not used until you move it to its book part. Its items are kept.
+          </p>
+        ) : null}
+        {partError ? (
+          <p role="note" className="text-[11px] text-amber-300">
+            Book parts could not be loaded, so the scope cannot be chosen yet.
           </p>
         ) : null}
         {duplicate ? (
           <p role="note" className="flex items-start gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>{DUPLICATE_SCOPE_NOTICE}</span>
+            <span>{duplicateMessage}</span>
           </p>
         ) : null}
-        <DialogActions onClose={onClose} saving={state.saving} submitLabel={editing ? 'Save Changes' : 'Create Syllabus'} />
+        <DialogActions
+          onClose={onClose}
+          saving={state.saving}
+          disabled={!canSubmit}
+          submitLabel={editing ? 'Save Changes' : 'Create Syllabus'}
+        />
       </form>
     </DialogShell>
   );

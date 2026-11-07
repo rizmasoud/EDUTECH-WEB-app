@@ -390,6 +390,8 @@ export interface TeacherAttendanceRecordEntity {
 export interface SyllabusEntity {
   id: string;
   bookId: string;
+  bookPartId: string | null;
+  /** Legacy scope (segments are no longer a syllabus scope). */
   bookSegmentId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1242,18 +1244,25 @@ export interface AttendanceRecordWithStudentDto extends AttendanceRecordEntity {
   };
 }
 
+/**
+ * A syllabus belongs to a Book Part, or is the single whole-book syllabus of a book without Parts.
+ * `bookSegmentId` is accepted only to be rejected (segments are not a syllabus scope).
+ */
 export interface CreateSyllabusDto {
   bookId: string;
+  bookPartId?: string | null;
   bookSegmentId?: string | null;
 }
 
 export interface UpdateSyllabusDto {
   bookId?: string;
+  bookPartId?: string | null;
   bookSegmentId?: string | null;
 }
 
 export interface FindSyllabiFilterDto {
   bookId?: string;
+  bookPartId?: string;
   bookSegmentId?: string;
 }
 
@@ -1276,6 +1285,8 @@ export interface UpdateSyllabusItemDto {
 export interface SyllabusDto {
   id: string;
   bookId: string;
+  bookPartId?: string | null;
+  /** Legacy scope: only pre-existing rows carry one; the Supervisor moves them to their Part. */
   bookSegmentId?: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1299,6 +1310,11 @@ export interface SyllabusDetailDto extends SyllabusDto {
     name: string;
     level: string;
   };
+  bookPart?: {
+    id: string;
+    name: string;
+    sequenceOrder: number;
+  } | null;
   bookSegment?: {
     id: string;
     name: string;

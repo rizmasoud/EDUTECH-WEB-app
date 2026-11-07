@@ -42,12 +42,22 @@ function item(id: string, sequenceOrder: number, over: Partial<SyllabusItem> = {
 const wholeBook: SyllabusDetail = {
   id: 's-book',
   bookId: 'b1',
+  bookPartId: null,
+  bookPart: null,
   bookSegmentId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   bookSegment: null,
 };
-const unitOne: SyllabusDetail = {
+/** The syllabus of Part 1 (the only scope new syllabi use besides the whole book of a book without parts). */
+const partOne: SyllabusDetail = {
+  ...wholeBook,
+  id: 's-part1',
+  bookPartId: 'part1',
+  bookPart: { id: 'part1', name: 'Units', sequenceOrder: 1 },
+};
+/** Legacy data: created for a segment before segments stopped being a syllabus scope. */
+const legacySegment: SyllabusDetail = {
   ...wholeBook,
   id: 's-seg',
   bookSegmentId: 'seg1',
@@ -62,8 +72,12 @@ function render(over: Partial<SyllabusPanelViewProps> = {}): string {
     loadError: null,
     actionError: null,
     syllabi: [],
-    segmentOptions: [{ id: 'seg1', label: 'Part 1: Units > #1 Unit 1' }],
-    segmentError: null,
+    partOptions: [
+      { id: 'part1', label: 'Part 1: Units' },
+      { id: 'part2', label: 'Part 2: Review' },
+    ],
+    partsReady: true,
+    partError: null,
     expandedId: null,
     itemsBySyllabus: {},
     detailLoadingId: null,
@@ -72,7 +86,7 @@ function render(over: Partial<SyllabusPanelViewProps> = {}): string {
     scopeDialog: null,
     itemDialog: null,
     onRetry: noop,
-    onRetrySegments: noop,
+    onRetryParts: noop,
     onToggle: noop,
     onNewSyllabus: noop,
     onEditSyllabus: noop,
@@ -141,6 +155,11 @@ describe('SyllabusPanelView: loading, error and empty states', () => {
     assert.equal(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*New Syllabus/.exec(render())![0]), false);
   });
 
+  it('disables "New Syllabus" until the parts are known (they decide whether the book is Part-scoped)', () => {
+    const html = render({ partsReady: false, partOptions: [] });
+    assert.ok(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*New Syllabus/.exec(html)![0]));
+  });
+
   it('shows a load failure as an alert with a retry, never as an empty list', () => {
     const html = render({ loadError: 'Failed to load syllabi' });
     assert.match(html, /role="alert"/);
@@ -152,7 +171,8 @@ describe('SyllabusPanelView: loading, error and empty states', () => {
   it('explains an empty book and how to start', () => {
     const html = render();
     assert.match(html, /No syllabus yet/);
-    assert.match(html, /whole book or for a single segment/);
+    assert.match(html, /Create one for a book part \(or for the whole book when it has no parts\)/);
+    assert.doesNotMatch(html, /segment/i);
   });
 
   it('shows a reorder failure above a list that stays visible', () => {
@@ -165,12 +185,15 @@ describe('SyllabusPanelView: loading, error and empty states', () => {
 });
 
 describe('SyllabusPanelView: syllabi and items', () => {
-  it('lists syllabi with their scope (whole book and segment)', () => {
-    const html = render({ syllabi: [wholeBook, unitOne] });
+  it('lists syllabi with their scope (whole book, book part) and flags a legacy segment syllabus', () => {
+    const html = render({ syllabi: [wholeBook, partOne, legacySegment] });
     assert.match(html, /Whole book/);
-    assert.match(html, /Segment: Unit 1/);
+    assert.match(html, /Part 1: Units/);
+    assert.match(html, /Legacy segment syllabus: Unit 1/);
+    assert.match(html, /Not used - move to its part/);
     assert.match(html, /aria-expanded="false"/);
-    assert.match(html, /aria-label="Change scope of Whole book"/);
+    assert.match(html, /aria-label="Change book part of Whole book"/);
+    assert.match(html, /aria-label="Change book part of Part 1: Units"/);
     // collapsed: no item list and no "Add Item" until a syllabus is expanded
     assert.doesNotMatch(html, /aria-expanded="true"/);
     assert.doesNotMatch(html, /Add Item/);
@@ -267,49 +290,77 @@ describe('SyllabusPanelView: no unsafe delete', () => {
 });
 
 describe('SyllabusPanelView: syllabus dialog', () => {
-  it('creates a syllabus for the whole book or a segment, in a labelled modal dialog', () => {
-    const html = render({ scopeDialog: { mode: 'create', error: null, saving: false } });
+  const create = { mode: 'create' as const, error: null, saving: false };
+
+  it('offers the Parts of a multi-part book as the only scopes, in a labelled modal dialog', () => {
+    const html = render({ scopeDialog: create });
     assert.match(html, /role="dialog"/);
     assert.match(html, /aria-modal="true"/);
     assert.match(html, />New Syllabus</);
     assert.match(html, /Touchstone 1/);
-    assert.match(html, /<option value=""( selected="")?>Whole book<\/option>/);
-    assert.match(html, /<option value="seg1">Part 1: Units &gt; #1 Unit 1<\/option>/);
+    assert.match(html, /Book part \*/);
+    assert.match(html, /<option value="part1">Part 1: Units<\/option>/);
+    assert.match(html, /<option value="part2">Part 2: Review<\/option>/);
+    assert.doesNotMatch(html, />Whole book/, 'a book with parts has no whole-book syllabus');
+    assert.doesNotMatch(html, /<option value="seg/, 'segments are never offered');
     assert.match(html, /Create Syllabus/);
   });
 
+  it('cannot be submitted until a part is chosen for a multi-part book', () => {
+    const html = render({ scopeDialog: create });
+    assert.ok(isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]));
+  });
+
+  it('offers only the whole-book scope for a book without parts', () => {
+    const html = render({ partOptions: [], scopeDialog: create });
+    assert.match(html, /<option value=""( selected="")?>Whole book \(this book has no parts\)<\/option>/);
+    assert.doesNotMatch(html, /<option value="part/);
+    assert.doesNotMatch(html, /<option value="seg/);
+    assert.ok(!isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]), 'the whole book can be created');
+  });
+
   it('shows a save failure inside the dialog, above the form fields', () => {
-    const message = 'Book segment seg9 does not belong to book b1';
+    const message = 'Book part part9 does not belong to book b1';
     const html = render({ scopeDialog: { mode: 'create', error: message, saving: false } });
     const dialog = html.indexOf('role="dialog"');
     const alert = html.indexOf(message);
     assert.ok(dialog >= 0 && alert > dialog, 'error is rendered inside the dialog');
-    assert.ok(alert < html.indexOf('Scope *'), 'error comes before the fields');
+    assert.ok(alert < html.indexOf('Book part *'), 'error comes before the fields');
   });
 
-  it('warns, without blocking, when the chosen scope already has a syllabus', () => {
-    const html = render({ syllabi: [wholeBook], scopeDialog: { mode: 'create', error: null, saving: false } });
-    assert.match(html, /Another syllabus already exists for this scope/);
-    assert.ok(!isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]), 'submit stays enabled');
+  it('blocks a second whole-book syllabus and says why', () => {
+    const html = render({ partOptions: [], syllabi: [wholeBook], scopeDialog: create });
+    assert.match(html, /This book already has a whole-book syllabus/);
+    assert.ok(isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]), 'the API rejects a duplicate, so submit is off');
   });
 
-  it('edits the scope with the current segment selected and no warning for its own scope', () => {
-    const html = render({
-      syllabi: [wholeBook, unitOne],
-      scopeDialog: { mode: 'edit', syllabus: unitOne, error: null, saving: false },
+  it('blocks choosing a part that already has a syllabus, with no warning for the syllabus own part', () => {
+    const edit = render({
+      syllabi: [partOne],
+      scopeDialog: { mode: 'edit', syllabus: partOne, error: null, saving: false },
     });
-    assert.match(html, />Change Syllabus Scope</);
-    assert.match(html, /<option value="seg1" selected="">/);
-    assert.match(html, /Save Changes/);
-    assert.doesNotMatch(html, /Another syllabus already exists/);
+    assert.match(edit, />Change Book Part</);
+    assert.match(edit, /<option value="part1" selected="">Part 1: Units<\/option>/);
+    assert.match(edit, /Save Changes/);
+    assert.doesNotMatch(edit, /already has a syllabus/);
   });
 
-  it('keeps the current segment selectable even if the segment list failed to load', () => {
+  it('moves a legacy segment syllabus to a part: explains it, starts with no part chosen, keeps its items', () => {
     const html = render({
-      segmentOptions: [],
-      scopeDialog: { mode: 'edit', syllabus: unitOne, error: null, saving: false },
+      syllabi: [legacySegment],
+      scopeDialog: { mode: 'edit', syllabus: legacySegment, error: null, saving: false },
     });
-    assert.match(html, /<option value="seg1" selected="">Unit 1<\/option>/);
+    assert.match(html, />Move Syllabus to a Book Part</);
+    assert.match(html, /created for a segment \(Unit 1\)/);
+    assert.match(html, /Its items are kept/);
+    assert.doesNotMatch(html, /<option value="seg/);
+    assert.ok(isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]), 'a part must be chosen first');
+  });
+
+  it('disables the selector and submit until the parts have loaded', () => {
+    const html = render({ partsReady: false, partOptions: [], scopeDialog: create });
+    assert.ok(isDisabled(/<select[^>]*>/.exec(html)![0]));
+    assert.ok(isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]));
   });
 
   it('disables submit and cancel while saving', () => {
@@ -405,7 +456,7 @@ describe('SyllabusPanel (container): data flow guards', () => {
     assert.ok((src.match(/isLatest\(token\)/g) ?? []).length >= 6);
     assert.match(
       src,
-      /return \(\) => \{\s*listGuard\.invalidate\(\);\s*detailGuard\.invalidate\(\);\s*segmentGuard\.invalidate\(\);/,
+      /return \(\) => \{\s*listGuard\.invalidate\(\);\s*detailGuard\.invalidate\(\);\s*partGuard\.invalidate\(\);/,
     );
   });
 
@@ -475,33 +526,38 @@ describe('Books area integration', () => {
   });
 });
 
-describe('regression: segment choices load independently of the syllabus list (view)', () => {
-  const failedSegments = {
-    syllabi: [wholeBook, unitOne],
-    segmentOptions: [],
-    segmentError: 'Failed to load book parts',
+describe('regression: part choices load independently of the syllabus list (view)', () => {
+  const failedParts = {
+    syllabi: [wholeBook, partOne],
+    partOptions: [],
+    partsReady: false,
+    partError: 'Failed to load book parts',
   };
 
-  it('keeps the loaded syllabus list visible and "New Syllabus" enabled when segment choices fail', () => {
-    const html = render(failedSegments);
+  it('keeps the loaded syllabus list visible when the part choices fail', () => {
+    const html = render(failedParts);
     assert.match(html, /Whole book/);
-    assert.match(html, /Segment: Unit 1/);
+    assert.match(html, /Part 1: Units/);
     assert.doesNotMatch(html, /No syllabus yet/);
-    assert.equal(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*New Syllabus/.exec(html)![0]), false);
   });
 
-  it('reports the segment failure as its own notice with its own retry, not as a list failure', () => {
-    const html = render(failedSegments);
+  it('does not allow creating a syllabus until the parts are known, because that decides the scope', () => {
+    const html = render(failedParts);
+    assert.ok(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*New Syllabus/.exec(html)![0]));
+  });
+
+  it('reports the part failure as its own notice with its own retry, not as a list failure', () => {
+    const html = render(failedParts);
     assert.match(html, /role="alert"/);
-    assert.match(html, /Segment choices could not be loaded\. Failed to load book parts\./);
-    assert.match(html, /new syllabi are limited to the whole book/);
-    assert.match(html, />Reload segments</);
+    assert.match(html, /Book parts could not be loaded\. Failed to load book parts\./);
+    assert.match(html, /new syllabi cannot be created or moved until the parts load/);
+    assert.match(html, />Reload parts</);
     assert.doesNotMatch(html, />Try again</, 'the list retry belongs to a list failure only');
   });
 
   it('keeps expanded items and every item action usable', () => {
     const html = render({
-      ...failedSegments,
+      ...failedParts,
       expandedId: 's-book',
       itemsBySyllabus: { 's-book': [item('a', 1, { title: 'First' }), item('b', 2, { title: 'Second' })] },
     });
@@ -511,36 +567,27 @@ describe('regression: segment choices load independently of the syllabus list (v
     assert.equal(isDisabled(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Add Item/.exec(html)![0]), false);
   });
 
-  it('still lets the Supervisor create a whole-book syllabus, and says why segments are missing', () => {
-    const html = render({ ...failedSegments, syllabi: [], scopeDialog: { mode: 'create', error: null, saving: false } });
-    assert.match(html, /<option value=""( selected="")?>Whole book<\/option>/);
-    assert.doesNotMatch(html, /<option value="seg1"/);
-    assert.match(html, /Segment choices could not be loaded\. You can still choose Whole book\./);
-    assert.ok(!isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]));
+  it('keeps the dialog from guessing a scope while the parts are missing, and says why', () => {
+    const html = render({ ...failedParts, syllabi: [], scopeDialog: { mode: 'create', error: null, saving: false } });
+    assert.doesNotMatch(html, /<option value="part/);
+    assert.match(html, /Book parts could not be loaded, so the scope cannot be chosen yet\./);
+    assert.ok(isDisabled(/<button type="submit"[^>]*>/.exec(html)![0]));
   });
 
-  it('keeps the current segment selectable when editing a segment syllabus while choices are missing', () => {
-    const html = render({
-      ...failedSegments,
-      scopeDialog: { mode: 'edit', syllabus: unitOne, error: null, saving: false },
-    });
-    assert.match(html, /<option value="seg1" selected="">Unit 1<\/option>/);
-  });
-
-  it('shows no segment notice when segment choices loaded, or while the list itself is loading or failed', () => {
-    assert.doesNotMatch(render({ syllabi: [wholeBook] }), /Segment choices could not be loaded/);
-    assert.doesNotMatch(render({ ...failedSegments, loading: true }), /Reload segments/);
-    assert.doesNotMatch(render({ ...failedSegments, loadError: 'Failed to load syllabi' }), /Reload segments/);
+  it('shows no part notice when the parts loaded, or while the list itself is loading or failed', () => {
+    assert.doesNotMatch(render({ syllabi: [wholeBook] }), /Book parts could not be loaded/);
+    assert.doesNotMatch(render({ ...failedParts, loading: true }), /Reload parts/);
+    assert.doesNotMatch(render({ ...failedParts, loadError: 'Failed to load syllabi' }), /Reload parts/);
   });
 
   it('a real list failure is still reported as a list failure with its retry', () => {
-    const html = render({ loadError: 'Failed to load syllabi', segmentError: null });
+    const html = render({ loadError: 'Failed to load syllabi', partError: null });
     assert.match(html, />Try again</);
     assert.match(html, /Failed to load syllabi/);
   });
 });
 
-describe('regression: segment choices load independently of the syllabus list (container)', () => {
+describe('regression: part choices load independently of the syllabus list (container)', () => {
   const src = read('apps/web/components/academic/SyllabusPanel.tsx');
 
   function callback(name: string): string {
@@ -552,35 +599,47 @@ describe('regression: segment choices load independently of the syllabus list (c
   it('loads the syllabus list without touching parts or segments', () => {
     const body = callback('loadSyllabi');
     assert.match(body, /await apiClient\.getSyllabi\(\{ bookId: book\.id \}\)/);
-    assert.doesNotMatch(body, /getBookParts|getBookSegments|setSegmentOptions|setSegmentError/);
+    assert.doesNotMatch(body, /getBookParts|getBookSegments|setPartOptions|setPartError/);
   });
 
-  it('loads segment choices separately, reporting failure only through segmentError', () => {
-    const body = callback('loadSegmentOptions');
-    assert.match(body, /segmentGuard\.begin\(\)/);
+  it('loads the part choices separately, reporting failure only through partError', () => {
+    const body = callback('loadPartOptions');
+    assert.match(body, /partGuard\.begin\(\)/);
     assert.match(body, /getBookParts\(book\.id\)/);
-    assert.match(body, /getBookSegments\(part\.id\)/);
-    assert.match(body, /setSegmentError\(describeSyllabusError\(err, 'Failed to load segments'\)\)/);
+    assert.match(body, /setPartError\(describeSyllabusError\(err, 'Failed to load book parts'\)\)/);
     assert.doesNotMatch(body, /setLoadError|setLoading|setSyllabi|listGuard/);
   });
 
-  it('never fetches the syllabus list and the segment choices in one Promise.all', () => {
+  it('never loads or offers segments: they are not a syllabus scope', () => {
+    assert.doesNotMatch(src, /getBookSegments|buildSegmentOptions|segmentOptions|bookSegmentId/);
+  });
+
+  it('never fetches the syllabus list and the part choices in one Promise.all', () => {
     assert.doesNotMatch(src, /Promise\.all\(\[\s*apiClient\.getSyllabi/);
     assert.doesNotMatch(src, /Promise\.all\(\[[^\]]*getBookParts/);
   });
 
   it('starts both loads from the mount effect and gives the view a separate retry for each', () => {
     const effect = src.slice(src.indexOf('useEffect(() => {'));
-    assert.match(effect, /void loadSyllabi\(\);\s*void loadSegmentOptions\(\);/);
+    assert.match(effect, /void loadSyllabi\(\);\s*void loadPartOptions\(\);/);
     assert.match(src, /onRetry=\{\(\) => void loadSyllabi\(\)\}/);
-    assert.match(src, /onRetrySegments=\{\(\) => void loadSegmentOptions\(\)\}/);
-    assert.match(src, /segmentError=\{segmentError\}/);
+    assert.match(src, /onRetryParts=\{\(\) => void loadPartOptions\(\)\}/);
+    assert.match(src, /partError=\{partError\}/);
+    assert.match(src, /partsReady=\{partsReady\}/);
   });
 
-  it('does not reload segment choices after saving a syllabus (only the list changes)', () => {
+  it('refuses to save a scope before the parts are known, then validates with whether the book has parts', () => {
+    const body = src.slice(src.indexOf('const handleSubmitScope'), src.indexOf('const handleSubmitItem'));
+    assert.match(body, /if \(!partsReady\)/);
+    assert.match(body, /const hasParts = partOptions\.length > 0/);
+    assert.match(body, /buildCreateSyllabusPayload\(book\.id, partId, hasParts\)/);
+    assert.match(body, /buildUpdateSyllabusPayload\(editing, partId, hasParts\)/);
+  });
+
+  it('does not reload part choices after saving a syllabus (only the list changes)', () => {
     const body = src.slice(src.indexOf('const handleSubmitScope'), src.indexOf('const handleSubmitItem'));
     assert.match(body, /await loadSyllabi\(\)/);
-    assert.doesNotMatch(body, /loadSegmentOptions/);
+    assert.doesNotMatch(body, /loadPartOptions/);
   });
 });
 

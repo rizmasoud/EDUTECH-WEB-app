@@ -136,7 +136,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   it('dry run accepts a legacy-style schema (PGlite-derived expectation == real server catalog) and changes nothing', async () => {
-    const url = await legacyDatabase('dry', 11);
+    const url = await legacyDatabase('dry', 12);
     const fpBefore = await appFingerprint(url);
     const dataBefore = await appData(url);
 
@@ -149,7 +149,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
     const plan = await withPostgresReader(url, (r) => planBaseline(r, migrationsDir));
     assert.deepEqual(plan.refusals, []);
     assert.equal(plan.ok, true);
-    assert.equal(plan.chosenCount, 11);
+    assert.equal(plan.chosenCount, 12);
     assert.equal(plan.status?.state, 'untracked-existing-schema');
 
     assert.equal(await appFingerprint(url), fpBefore);
@@ -160,13 +160,13 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   it('the dry-run reader is a server-enforced READ ONLY transaction', async () => {
-    const url = await legacyDatabase('ro', 11);
+    const url = await legacyDatabase('ro', 12);
     const mode = await withPostgresReader(url, async (r) => (await r.select('show transaction_read_only'))[0]);
     assert.deepEqual(mode, { transaction_read_only: 'on' });
   });
 
   it('a structurally wrong tracking table is refused before any insert; schema and data unchanged', async () => {
-    const url = await legacyDatabase('shape', 11);
+    const url = await legacyDatabase('shape', 12);
     const c = connect(url);
     await c.unsafe('create schema drizzle; create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at text)');
     const fpBefore = await appFingerprint(url);
@@ -181,7 +181,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   it('refuses to write without explicit confirmation', async () => {
-    const url = await legacyDatabase('noconfirm', 11);
+    const url = await legacyDatabase('noconfirm', 12);
     await assert.rejects(
       withPostgresBaselineExecutor(url, (ex) => applyBaseline(ex, migrationsDir, { confirm: false as unknown as true })),
       BaselineRefusedError,
@@ -190,7 +190,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   it('an interruption mid-write rolls back: no schema, no table, no rows', async () => {
-    const url = await legacyDatabase('crash', 11);
+    const url = await legacyDatabase('crash', 12);
     let inserts = 0;
     await assert.rejects(
       withPostgresBaselineExecutor(url, (base) => {
@@ -217,7 +217,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
   });
 
   it('concurrent confirmed attempts on separate connections: exactly one writes, history is exact and not duplicated', async () => {
-    const url = await legacyDatabase('race', 11);
+    const url = await legacyDatabase('race', 12);
     const fpBefore = await appFingerprint(url);
     const dataBefore = await appData(url);
     const expected = readMigrationFiles({ migrationsFolder: migrationsDir });
@@ -231,7 +231,7 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
     assert.ok(rejected.reason instanceof BaselineRefusedError, String(rejected.reason));
 
     const h = await history(url);
-    assert.equal(h.rows.length, 11);
+    assert.equal(h.rows.length, 12);
     assert.deepEqual(h.rows.map((r) => r.hash), expected.map((m) => m.hash));
     assert.deepEqual(h.rows.map((r) => Number(r.created_at)), expected.map((m) => m.folderMillis));
     assert.equal(await appFingerprint(url), fpBefore, 'application schema unchanged');
@@ -242,17 +242,17 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
       withPostgresBaselineExecutor(url, (ex) => applyBaseline(ex, migrationsDir, { confirm: true })),
       BaselineRefusedError,
     );
-    assert.equal((await history(url)).rows.length, 11);
+    assert.equal((await history(url)).rows.length, 12);
 
     // status agrees, and the REAL Drizzle migrator treats the baseline as complete history
     const status = await withPostgresReader(url, (r) => inspectMigrations(r, migrationsDir));
     assert.equal(status.state, 'tracked');
-    assert.equal(status.appliedCount, 11);
+    assert.equal(status.appliedCount, 12);
     assert.equal(status.pendingCount, 0);
     assert.deepEqual(status.problems, []);
     const c = connect(url);
     await migrate(drizzle(c), { migrationsFolder: migrationsDir });
-    assert.equal((await history(url)).rows.length, 11, 'real migrator must apply nothing');
+    assert.equal((await history(url)).rows.length, 12, 'real migrator must apply nothing');
     assert.equal(await appFingerprint(url), fpBefore);
     assert.equal(await appData(url), dataBefore);
   });
@@ -268,15 +268,15 @@ describe('db:baseline on a real PostgreSQL server (disposable databases only)', 
     assert.equal((await history(url)).rows.length, 6);
 
     await migrate(drizzle(connect(url)), { migrationsFolder: migrationsDir });
-    assert.equal((await history(url)).rows.length, 11);
+    assert.equal((await history(url)).rows.length, 12);
 
     // end state equals a legacy database that had every migration replayed
-    const full = await legacyDatabase('full', 11);
+    const full = await legacyDatabase('full', 12);
     assert.equal(await appFingerprint(url), await appFingerprint(full));
   });
 
   it('an incompatible schema is refused on a real server and nothing is written', async () => {
-    const url = await legacyDatabase('bad', 11);
+    const url = await legacyDatabase('bad', 12);
     await connect(url).unsafe('alter table classes alter column capacity drop not null');
     await assert.rejects(
       withPostgresBaselineExecutor(url, (ex) => applyBaseline(ex, migrationsDir, { confirm: true })),

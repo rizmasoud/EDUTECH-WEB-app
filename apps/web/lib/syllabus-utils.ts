@@ -13,7 +13,7 @@ import {
   UpdateSyllabusSchema,
 } from '@edutech/shared';
 import type { CreateSyllabusDto, CreateSyllabusItemDto, UpdateSyllabusDto } from '@edutech/shared';
-import type { BookPartItem, BookSegmentItem, SyllabusDetail, SyllabusItem } from './api-client';
+import type { BookPartItem, SyllabusDetail, SyllabusItem } from './api-client';
 
 export const SYLLABUS_ITEM_TYPE_LABEL: Record<SyllabusItemType, string> = {
   FILM: 'Film',
@@ -40,11 +40,14 @@ export const SYLLABUS_ITEM_DELETE_POLICY = {
 
 export const NO_CHANGES_MESSAGE = 'No changes to save.';
 
-/** Shown (not enforced) when a second syllabus is created for a scope that already has one. */
-export const DUPLICATE_SCOPE_NOTICE =
-  'Another syllabus already exists for this scope. The API allows this, but it can be ambiguous which one is used later.';
+/** Each scope (a book part, or the whole book when it has no parts) has exactly one syllabus; the API rejects a second. */
+export const DUPLICATE_PART_MESSAGE = 'This book part already has a syllabus. Each part has exactly one syllabus.';
+export const DUPLICATE_WHOLE_BOOK_MESSAGE = 'This book already has a whole-book syllabus.';
+export const PART_REQUIRED_MESSAGE =
+  'Choose the book part this syllabus belongs to. A book with parts has one syllabus per part, never a whole-book syllabus.';
+export const PART_NOT_APPLICABLE_MESSAGE = 'This book has no parts, so its syllabus covers the whole book.';
 
-/** Value of the scope selector that means "the whole book" (no segment). */
+/** Value of the scope selector that means "the whole book" (only for a book without parts). */
 export const WHOLE_BOOK_VALUE = '';
 
 export function sortSyllabusItems<T extends { sequenceOrder: number }>(items: readonly T[]): T[] {
@@ -56,50 +59,64 @@ export function nextSequenceOrder(items: readonly { sequenceOrder: number }[]): 
   return items.reduce((max, item) => Math.max(max, item.sequenceOrder), 0) + 1;
 }
 
-// ---- scope (book / segment) -------------------------------------------------------------------------------
+// ---- scope (book part / whole book) -----------------------------------------------------------------------
+//
+// A syllabus belongs to a Book Part, or is the single whole-book syllabus of a book that has no Parts.
+// Segments are subdivisions inside a Part and are never a syllabus scope, so they are never offered here.
 
-export interface SegmentOption {
+export interface PartOption {
   id: string;
   label: string;
 }
 
-/** Segment choices for a book, in curriculum order: "Part 1: Name > #2 Unit". */
-export function buildSegmentOptions(
-  parts: readonly BookPartItem[],
-  segmentsByPart: Readonly<Record<string, readonly BookSegmentItem[]>>,
-): SegmentOption[] {
-  const options: SegmentOption[] = [];
-  for (const part of sortSyllabusItems(parts)) {
-    for (const segment of sortSyllabusItems(segmentsByPart[part.id] ?? [])) {
-      options.push({
-        id: segment.id,
-        label: `Part ${part.sequenceOrder}: ${part.name} > #${segment.sequenceOrder} ${segment.name}`,
-      });
-    }
+/** Part choices for a book, in curriculum order: "Part 1: Name". */
+export function buildPartOptions(parts: readonly BookPartItem[]): PartOption[] {
+  return sortSyllabusItems(parts).map((part) => ({
+    id: part.id,
+    label: `Part ${part.sequenceOrder}: ${part.name}`,
+  }));
+}
+
+/** Legacy data: a syllabus created per segment before segments stopped being a syllabus scope. */
+export function isLegacySegmentSyllabus(syllabus: Pick<SyllabusDetail, 'bookSegmentId'>): boolean {
+  return Boolean(syllabus.bookSegmentId);
+}
+
+export function syllabusScopeLabel(
+  syllabus: Pick<SyllabusDetail, 'bookPartId' | 'bookPart' | 'bookSegmentId' | 'bookSegment'>,
+): string {
+  if (syllabus.bookPartId) {
+    const part = syllabus.bookPart;
+    return part ? `Part ${part.sequenceOrder}: ${part.name}` : 'Part';
   }
-  return options;
+  if (isLegacySegmentSyllabus(syllabus)) {
+    return `Legacy segment syllabus: ${syllabus.bookSegment?.name ?? 'Unknown segment'}`;
+  }
+  return 'Whole book';
 }
 
-export function syllabusScopeLabel(syllabus: Pick<SyllabusDetail, 'bookSegmentId' | 'bookSegment'>): string {
-  if (!syllabus.bookSegmentId) return 'Whole book';
-  return `Segment: ${syllabus.bookSegment?.name ?? 'Unknown segment'}`;
-}
-
-/** Whole-book syllabi first, then by segment name. */
+/** Whole-book syllabus first, then parts in curriculum order, then legacy segment syllabi last. */
 export function sortSyllabi(syllabi: readonly SyllabusDetail[]): SyllabusDetail[] {
+  const rank = (s: SyllabusDetail) => (s.bookPartId ? 1 : isLegacySegmentSyllabus(s) ? 2 : 0);
   return [...syllabi].sort((a, b) => {
-    if (!a.bookSegmentId !== !b.bookSegmentId) return a.bookSegmentId ? 1 : -1;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (rank(a) === 1) return (a.bookPart?.sequenceOrder ?? 0) - (b.bookPart?.sequenceOrder ?? 0);
     return (a.bookSegment?.name ?? '').localeCompare(b.bookSegment?.name ?? '');
   });
 }
 
-/** True when another syllabus (not `excludeId`) already covers the scope. `segmentId` null means whole book. */
+/** True when another syllabus (not `excludeId`) already covers the scope. `partId` null means the whole book. */
 export function hasSameScope(
-  syllabi: readonly Pick<SyllabusDetail, 'id' | 'bookSegmentId'>[],
-  segmentId: string | null,
+  syllabi: readonly Pick<SyllabusDetail, 'id' | 'bookPartId' | 'bookSegmentId'>[],
+  partId: string | null,
   excludeId?: string,
 ): boolean {
-  return syllabi.some((s) => s.id !== excludeId && (s.bookSegmentId ?? null) === segmentId);
+  return syllabi.some(
+    (s) =>
+      s.id !== excludeId &&
+      !isLegacySegmentSyllabus(s) &&
+      (s.bookPartId ?? null) === partId,
+  );
 }
 
 function issuesToMessage(issues: readonly { message: string }[]): string {
@@ -108,19 +125,35 @@ function issuesToMessage(issues: readonly { message: string }[]): string {
 
 export type ScopeResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Validate a create/edit of a syllabus' scope with the shared contracts. The book never changes here. */
-export function buildCreateSyllabusPayload(bookId: string, segmentId: string): ScopeResult<CreateSyllabusDto> {
-  const parsed = CreateSyllabusSchema.safeParse({ bookId, bookSegmentId: segmentId || null });
+/**
+ * Validate the scope of a new syllabus with the shared contract plus the part rule the API enforces (checked here
+ * only to answer without a round trip). `hasParts` says whether the book has Parts: then a Part is required and a
+ * whole-book syllabus is not allowed; otherwise only the whole book applies. Segments are never sent.
+ */
+export function buildCreateSyllabusPayload(
+  bookId: string,
+  partId: string,
+  hasParts: boolean,
+): ScopeResult<CreateSyllabusDto> {
+  if (hasParts && !partId) return { ok: false, error: PART_REQUIRED_MESSAGE };
+  if (!hasParts && partId) return { ok: false, error: PART_NOT_APPLICABLE_MESSAGE };
+  const parsed = CreateSyllabusSchema.safeParse({ bookId, bookPartId: partId || null });
   return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: issuesToMessage(parsed.error.issues) };
 }
 
+/** Moving a syllabus to a Part (also how a legacy segment syllabus is moved to its Part). */
 export function buildUpdateSyllabusPayload(
-  current: Pick<SyllabusDetail, 'bookSegmentId'>,
-  segmentId: string,
+  current: Pick<SyllabusDetail, 'bookPartId' | 'bookSegmentId'>,
+  partId: string,
+  hasParts: boolean,
 ): ScopeResult<UpdateSyllabusDto> {
-  const next = segmentId || null;
-  if ((current.bookSegmentId ?? null) === next) return { ok: false, error: NO_CHANGES_MESSAGE };
-  const parsed = UpdateSyllabusSchema.safeParse({ bookSegmentId: next });
+  if (hasParts && !partId) return { ok: false, error: PART_REQUIRED_MESSAGE };
+  if (!hasParts && partId) return { ok: false, error: PART_NOT_APPLICABLE_MESSAGE };
+  const next = partId || null;
+  if ((current.bookPartId ?? null) === next && !isLegacySegmentSyllabus(current)) {
+    return { ok: false, error: NO_CHANGES_MESSAGE };
+  }
+  const parsed = UpdateSyllabusSchema.safeParse({ bookPartId: next });
   return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: issuesToMessage(parsed.error.issues) };
 }
 
