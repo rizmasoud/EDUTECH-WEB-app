@@ -769,7 +769,7 @@ An approved Lesson Plan is not frozen. After initial approval the Class's curren
 
 Structural changes to an APPROVED plan notify the active Supervisors. Structural changes include, for example, adding or removing an activity, reordering activities, and moving an activity to a different session. Marking an activity completed or not completed, and ordinary notes, do not notify anyone.
 
-The system maintains a change history so that the Supervisor can see what changed and when.
+The system maintains a change history so that the Supervisor can see what changed and when. The change history can be viewed by the Supervisors and by the Class's current responsible Teacher (the plan owner). Substitute Teachers cannot view it.
 
 ---
 
@@ -811,7 +811,7 @@ Read access and completion-write access are separate permissions; having one doe
 - **Read:** the substitute can read the entire term plan, including the original Teacher's activity descriptions and supplementary notes.
 - **Completion:** the substitute can mark an activity complete or incomplete only when that activity is assigned to the session the substitute has been approved to replace.
 
-The substitute cannot make structural changes to the plan, such as adding, removing, reordering or moving activities or changing session assignments. Apart from the completion permission above, the substitute cannot modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
+The substitute cannot make structural changes to the plan, such as adding, removing, reordering or moving activities or changing session assignments, and cannot view the plan's change history. Apart from the completion permission above, the substitute cannot modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
 
 The substitute must not be able to alter the canonical Syllabus.
 
@@ -824,7 +824,7 @@ The substitute must not be able to alter the canonical Syllabus.
 These points are not decided and must not be treated as approved:
 
 - How long a substitute keeps read access to a plan after the covered session is completed. The duration is not decided, and no specific duration is a confirmed rule.
-- Whether the change history also records changes other than structural ones, such as completion changes and notes. This concerns the history only; notification rules are decided in §16.4.
+- Whether non-structural events, such as completion or uncompletion changes and ordinary notes, are also recorded in the change history. This concerns history recording only. It is separate from notifications, which are decided in §16.4: completion changes and ordinary notes notify no one.
 
 ---
 

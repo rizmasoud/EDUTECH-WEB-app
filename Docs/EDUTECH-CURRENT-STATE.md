@@ -157,7 +157,7 @@ Do not invent payment formulas. If the rules are not documented or conflict with
 
 - Supervisor-defined canonical syllabus for each book (one per book; Parts and Segments are not syllabus scopes)
 - One term lesson plan per class (private classes included), with every activity assigned to a session before submission; a submitted plan is locked until withdrawn; one initial supervisor review
-- Free restructuring by the current class teacher after approval, without re-approval (status stays APPROVED); structural changes notify active supervisors and are kept in a change history
+- Free restructuring by the current class teacher after approval, without re-approval (status stays APPROVED); structural changes notify active supervisors and are kept in a change history visible to supervisors and the current class teacher, not to substitutes
 - Dedicated teacher Lesson Plans section; weekly timetable shortcuts are supplementary
 - Read access to the whole term plan (including completion and the current session) for authorized substitute teachers, who may mark only the activities of their own approved session complete or incomplete
 - Relevant attachments

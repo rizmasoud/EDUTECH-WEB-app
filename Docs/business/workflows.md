@@ -934,7 +934,7 @@ The exact editing restrictions after rejection should be enforced by backend sta
 
 Teacher marks appropriate Lesson Plan items as completed or not completed. Completion changes and ordinary notes notify no one.
 
-After initial approval the Class's current Teacher may restructure the plan without another approval. Its status remains APPROVED, and structural changes notify the active Supervisors and are recorded in a change history.
+After initial approval the Class's current Teacher may restructure the plan without another approval. Its status remains APPROVED, and structural changes notify the active Supervisors and are recorded in a change history. Supervisors and the Class's current Teacher can view the change history; substitute Teachers cannot.
 
 Completion information may later be consumed by Payroll according to Payroll Policy.
 
@@ -958,7 +958,7 @@ Record permitted operational data
 
 The substitute can read the entire term Lesson Plan of the Class, including what is completed, what remains and what is planned for the session being covered.
 
-The substitute can mark an item complete or incomplete only when it is assigned to the session they were approved to replace. Read access and completion-write access are separate permissions. The substitute cannot make structural changes to the plan.
+The substitute can mark an item complete or incomplete only when it is assigned to the session they were approved to replace. Read access and completion-write access are separate permissions. The substitute cannot make structural changes to the plan or view its change history.
 
 The substitute does not gain ownership of the canonical Syllabus.
 

@@ -980,7 +980,7 @@ Teacher → LessonPlans
 
 A Lesson Plan belongs to a Class rather than necessarily belonging to a single Class Session.
 
-Required behavior: each Class has exactly one Lesson Plan for its academic term, covering the whole term (private Classes included). A SUBMITTED plan is locked until it is withdrawn to DRAFT. An APPROVED plan is not immutable: the Class's current Teacher can restructure it without another approval, and its status remains APPROVED. Structural changes to an APPROVED plan notify the active Supervisors and are kept in a change history; completion changes and ordinary notes notify no one. The current schema does not enforce one Lesson Plan per Class or define a change history. The structures for these are not defined here.
+Required behavior: each Class has exactly one Lesson Plan for its academic term, covering the whole term (private Classes included). A SUBMITTED plan is locked until it is withdrawn to DRAFT. An APPROVED plan is not immutable: the Class's current Teacher can restructure it without another approval, and its status remains APPROVED. Structural changes to an APPROVED plan notify the active Supervisors and are kept in a change history, which the Supervisors and the Class's current Teacher (the plan owner) can view and substitute Teachers cannot; completion changes and ordinary notes notify no one. Whether non-structural events are also recorded in the change history is not decided. The current schema does not enforce one Lesson Plan per Class or define a change history. The structures for these are not defined here.
 
 ---
 

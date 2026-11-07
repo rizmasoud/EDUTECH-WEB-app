@@ -382,14 +382,14 @@ Implement educational planning and execution tracking.
 - Dedicated Teacher Lesson Plans section.
 - Teacher submission (initial review): every activity assigned to a valid session of the Class and at least one activity; a SUBMITTED plan is locked until withdrawn to DRAFT.
 - Supervisor review and a single approval/rejection.
-- Restructuring of an APPROVED plan by the Class's current Teacher without re-approval (status stays APPROVED), with notification of the active Supervisors for structural changes and a change history.
+- Restructuring of an APPROVED plan by the Class's current Teacher without re-approval (status stays APPROVED), with notification of the active Supervisors for structural changes and a change history visible to the Supervisors and the current Teacher, not to substitutes.
 - Completion tracking per session activity.
 - Substitute read access to the whole term plan, and completion-write access limited to the substitute's own approved session.
 - Audit.
 
 ### Expected Result
 
-The Supervisor defines what a Book requires. The Teacher creates one term plan per Class, assigns selected activities to term sessions and submits it for one initial review. After approval the Teacher can keep restructuring the plan without re-approval, with the active Supervisors notified of structural changes and a change history kept, and tracks completion. A substitute Teacher can read the whole plan, including what is completed, what remains and what is planned for the current session, and can mark items of their own approved session complete or incomplete, but cannot restructure the plan.
+The Supervisor defines what a Book requires. The Teacher creates one term plan per Class, assigns selected activities to term sessions and submits it for one initial review. After approval the Teacher can keep restructuring the plan without re-approval, with the active Supervisors notified of structural changes and a change history kept (visible to the Supervisors and the current Teacher, not to substitutes), and tracks completion. A substitute Teacher can read the whole plan, including what is completed, what remains and what is planned for the current session, and can mark items of their own approved session complete or incomplete, but cannot restructure the plan.
 
 Book Parts and Book Segments are not part of Syllabus or Lesson Plan logic.
 
