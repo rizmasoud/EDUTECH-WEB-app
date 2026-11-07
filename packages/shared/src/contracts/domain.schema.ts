@@ -244,6 +244,8 @@ export const TeacherAttendanceRecordSchema = z.object({
 export const SyllabusSchema = z.object({
   id: z.string().uuid(),
   bookId: z.string().uuid(),
+  bookPartId: z.string().uuid().nullable(),
+  /** Legacy scope: segments are no longer a syllabus scope; only pre-existing rows can carry one. */
   bookSegmentId: z.string().uuid().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -731,18 +733,24 @@ export const UpdateClassSessionSchema = z
     },
   );
 
+// A syllabus is defined per Book Part (or once for a book without Parts), never per Segment.
+// `bookSegmentId` stays in the request contracts only so the API can reject it explicitly
+// (SYLLABUS_SEGMENT_SCOPE_NOT_ALLOWED); dropping it would let Zod strip it silently.
 export const CreateSyllabusSchema = z.object({
   bookId: z.string().uuid('bookId must be a valid UUID'),
+  bookPartId: z.string().uuid('bookPartId must be a valid UUID').nullable().optional(),
   bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
 });
 
 export const UpdateSyllabusSchema = z.object({
   bookId: z.string().uuid('bookId must be a valid UUID').optional(),
+  bookPartId: z.string().uuid('bookPartId must be a valid UUID').nullable().optional(),
   bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
 });
 
 export const FindSyllabiFilterSchema = z.object({
   bookId: z.string().uuid().optional(),
+  bookPartId: z.string().uuid().optional(),
   bookSegmentId: z.string().uuid().optional(),
 });
 

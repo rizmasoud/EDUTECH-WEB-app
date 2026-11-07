@@ -17,6 +17,7 @@ import {
   check,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { academicTermStatusEnum, syllabusItemTypeEnum } from './enums';
@@ -113,21 +114,51 @@ export const academicTerms = pgTable(
   ],
 );
 
-export const syllabi = pgTable('syllabi', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  bookId: uuid('book_id')
-    .notNull()
-    .references(() => books.id, { onDelete: 'restrict' }),
-  bookSegmentId: uuid('book_segment_id').references(() => bookSegments.id, {
-    onDelete: 'restrict',
-  }),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-});
+/**
+ * Canonical syllabus: exactly one per Book Part, or exactly one whole-book syllabus for a book without Parts.
+ *  - `book_part_id` set                      -> the syllabus of that Part (the only scope new syllabi use).
+ *  - `book_part_id` and `book_segment_id` NULL -> the whole-book syllabus of a book without Parts.
+ *  - `book_segment_id` set                   -> LEGACY (segments are no longer a syllabus scope). Such rows are
+ *    never written by the application any more and are never rewritten automatically; a Supervisor moves them to
+ *    their Part explicitly (PATCH /syllabi/:id with bookPartId), which clears the segment link.
+ * Whether a book "has Parts" depends on `book_parts`, so the whole-book-vs-Part rule is enforced by the service;
+ * the indexes below enforce uniqueness of each scope in the database.
+ */
+export const syllabi = pgTable(
+  'syllabi',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    bookId: uuid('book_id')
+      .notNull()
+      .references(() => books.id, { onDelete: 'restrict' }),
+    bookPartId: uuid('book_part_id').references(() => bookParts.id, {
+      onDelete: 'restrict',
+    }),
+    /** @deprecated Legacy scope, read-only. See the table comment above. */
+    bookSegmentId: uuid('book_segment_id').references(() => bookSegments.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('syllabi_book_part_id_idx').on(table.bookPartId),
+    check(
+      'syllabi_single_scope_check',
+      sql`NOT (${table.bookPartId} IS NOT NULL AND ${table.bookSegmentId} IS NOT NULL)`,
+    ),
+    uniqueIndex('syllabi_book_part_unique')
+      .on(table.bookId, table.bookPartId)
+      .where(sql`${table.bookPartId} IS NOT NULL`),
+    uniqueIndex('syllabi_book_whole_unique')
+      .on(table.bookId)
+      .where(sql`${table.bookPartId} IS NULL AND ${table.bookSegmentId} IS NULL`),
+  ],
+);
 
 export const syllabusItems = pgTable('syllabus_items', {
   id: uuid('id').defaultRandom().primaryKey(),

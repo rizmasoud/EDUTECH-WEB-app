@@ -64,8 +64,8 @@ describe('inspectMigrations', () => {
       assert.equal(r.state, 'empty');
       assert.equal(r.trackingTablePresent, false);
       assert.equal(r.appliedCount, 0);
-      assert.equal(r.pendingCount, 11);
-      assert.equal(r.migratorWouldApply.length, 11);
+      assert.equal(r.pendingCount, 12);
+      assert.equal(r.migratorWouldApply.length, 12);
       assert.deepEqual(r.problems, []);
       assert.equal(r.safeToMigrate, true);
       assert.equal(await snapshotCounts(pg), before, 'inspection must not change the database');
@@ -81,7 +81,7 @@ describe('inspectMigrations', () => {
       const before = await snapshotCounts(pg);
       const r = await inspect(pg);
       assert.equal(r.state, 'tracked');
-      assert.equal(r.appliedCount, 11);
+      assert.equal(r.appliedCount, 12);
       assert.equal(r.pendingCount, 0);
       assert.deepEqual(r.migratorWouldApply, []);
       assert.deepEqual(r.problems, []);
@@ -106,6 +106,7 @@ describe('inspectMigrations', () => {
           '0008_payrolls_unique',
           '0009_class_color',
           '0010_class_name',
+          '0011_syllabus_per_book_part',
         ],
       );
       assert.deepEqual(r.migratorWouldApply, r.migrations.filter((m) => m.status === 'pending').map((m) => m.tag));
@@ -151,7 +152,7 @@ describe('inspectMigrations', () => {
       // Simulate the historical hazard: an applied row with a timestamp newer than later migrations.
       await pg.exec(`update drizzle.__drizzle_migrations set created_at = ${Date.now() + 1_000_000} where id = (select max(id) from drizzle.__drizzle_migrations)`);
       const r = await inspect(pg);
-      assert.equal(r.pendingCount, 5);
+      assert.equal(r.pendingCount, 6);
       assert.deepEqual(r.migratorWouldApply, []);
       assert.equal(r.safeToMigrate, false);
       assert.ok(r.problems.some((p) => /would SKIP/.test(p)));

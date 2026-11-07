@@ -119,6 +119,7 @@ export const bookPartsRelations = relations(bookParts, ({ one, many }) => ({
     references: [books.id],
   }),
   bookSegments: many(bookSegments),
+  syllabi: many(syllabi),
 }));
 
 export const bookSegmentsRelations = relations(bookSegments, ({ one, many }) => ({
@@ -139,6 +140,10 @@ export const syllabiRelations = relations(syllabi, ({ one, many }) => ({
   book: one(books, {
     fields: [syllabi.bookId],
     references: [books.id],
+  }),
+  bookPart: one(bookParts, {
+    fields: [syllabi.bookPartId],
+    references: [bookParts.id],
   }),
   bookSegment: one(bookSegments, {
     fields: [syllabi.bookSegmentId],

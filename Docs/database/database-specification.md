@@ -883,7 +883,8 @@ Fields:
 ```text
 id
 book_id
-book_segment_id
+book_part_id
+book_segment_id (legacy, deprecated)
 created_at
 updated_at
 ```
@@ -891,8 +892,12 @@ updated_at
 Rules:
 
 - `book_id` references `books.id`.
-- `book_segment_id` is nullable.
-- If present, the Book Segment must belong to the specified Book.
+- `book_part_id` is nullable and references `book_parts.id` (ON DELETE RESTRICT). It is the canonical scope: NULL means whole book.
+- Unique index `syllabi_book_part_unique` on (`book_id`, `book_part_id`) where `book_part_id IS NOT NULL`.
+- Unique index `syllabi_book_whole_unique` on (`book_id`) where `book_part_id IS NULL AND book_segment_id IS NULL`.
+- Check `syllabi_single_scope_check`: a row never has both a Part and a Segment.
+- `book_segment_id` is a legacy column kept only so pre-existing rows are not destroyed. The API rejects it on create and update. Migration 0011 never rewrites such rows.
+- Whether a book may use a whole-book syllabus (no Parts) or must use Part syllabi (has Parts) is enforced in `SyllabusService`, because it depends on `book_parts`.
 
 A Syllabus represents canonical educational requirements.
 

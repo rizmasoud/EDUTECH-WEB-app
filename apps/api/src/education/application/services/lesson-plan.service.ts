@@ -18,13 +18,11 @@ import {
   lessonPlans,
   lessonPlanItems,
 } from '../../../infrastructure/database/schema/education.schema';
-import {
-  syllabi,
-  syllabusItems,
-} from '../../../infrastructure/database/schema/academics.schema';
+import { syllabusItems } from '../../../infrastructure/database/schema/academics.schema';
 import { substitutionRequests } from '../../../infrastructure/database/schema/substitutions.schema';
 import { SUBSTITUTE_EFFECTIVE_STATUSES } from '../../../substitution/domain/substitution-status';
 import { auditLogs } from '../../../infrastructure/database/schema/system.schema';
+import { resolveCanonicalSyllabusForClass } from '../../../academics/application/syllabus-resolution';
 import {
   CreateLessonPlanSchema,
   UpdateLessonPlanSchema,
@@ -214,42 +212,24 @@ export class LessonPlanService {
           });
         }
       } else if (data.copySyllabusItems !== false) {
-        // Automatically populate from canonical syllabus items if available (default true when initialItems is omitted)
-        let syllabusQuery = tx
+        // Copy the canonical syllabus of the class's exact Book + Part (or the whole-book syllabus of a book without
+        // Parts). A missing syllabus is a domain error: there is no fallback to another Part or Segment.
+        const canonicalSyllabus = await resolveCanonicalSyllabusForClass(tx, cls);
+
+        const sItems = await tx
           .select()
-          .from(syllabi)
-          .where(eq(syllabi.bookId, cls.bookId));
+          .from(syllabusItems)
+          .where(eq(syllabusItems.syllabusId, canonicalSyllabus.id))
+          .orderBy(syllabusItems.sequenceOrder);
 
-        if (cls.bookSegmentId) {
-          syllabusQuery = tx
-            .select()
-            .from(syllabi)
-            .where(
-              and(
-                eq(syllabi.bookId, cls.bookId),
-                eq(syllabi.bookSegmentId, cls.bookSegmentId),
-              ),
-            );
-        }
-
-        const [canonicalSyllabus] = await syllabusQuery.limit(1);
-
-        if (canonicalSyllabus) {
-          const sItems = await tx
-            .select()
-            .from(syllabusItems)
-            .where(eq(syllabusItems.syllabusId, canonicalSyllabus.id))
-            .orderBy(syllabusItems.sequenceOrder);
-
-          for (const sItem of sItems) {
-            await tx.insert(lessonPlanItems).values({
-              lessonPlanId: plan.id,
-              title: sItem.title,
-              description: sItem.description,
-              syllabusItemId: sItem.id,
-              completed: false,
-            });
-          }
+        for (const sItem of sItems) {
+          await tx.insert(lessonPlanItems).values({
+            lessonPlanId: plan.id,
+            title: sItem.title,
+            description: sItem.description,
+            syllabusItemId: sItem.id,
+            completed: false,
+          });
         }
       }
 

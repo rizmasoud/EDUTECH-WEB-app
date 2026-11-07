@@ -30,6 +30,7 @@ const EXPECTED_TAGS = [
   '0008_payrolls_unique',
   '0009_class_color',
   '0010_class_name',
+  '0011_syllabus_per_book_part',
 ];
 
 let scratchRoot: string;
@@ -58,10 +59,10 @@ describe('migration metadata (real repository files)', () => {
   it('passes every offline metadata check', () => {
     const { problems, summary } = validateMetadata(realDir);
     assert.deepEqual(problems, []);
-    assert.equal(summary.journalEntries, 11);
-    assert.equal(summary.sqlFiles, 11);
-    assert.equal(summary.discoveredByMigrator, 11);
-    assert.equal(summary.latestSnapshotIdx, 10);
+    assert.equal(summary.journalEntries, 12);
+    assert.equal(summary.sqlFiles, 12);
+    assert.equal(summary.discoveredByMigrator, 12);
+    assert.equal(summary.latestSnapshotIdx, 11);
   });
 
   it('journal lists all SQL files in order with the repaired idx5 tag', () => {
@@ -71,9 +72,9 @@ describe('migration metadata (real repository files)', () => {
     assert.deepEqual(sql, EXPECTED_TAGS.map((t) => `${t}.sql`));
   });
 
-  it('installed Drizzle migrator discovers all 11 migrations in order', () => {
+  it('installed Drizzle migrator discovers all 12 migrations in order', () => {
     const migrations = readMigrationFiles({ migrationsFolder: realDir });
-    assert.equal(migrations.length, 11);
+    assert.equal(migrations.length, 12);
     const whens = readJournal(realDir).entries.map((e: { when: number }) => e.when);
     assert.deepEqual(migrations.map((m) => m.folderMillis), whens);
     for (let i = 1; i < whens.length; i++) assert.ok(whens[i] > whens[i - 1]);
@@ -117,13 +118,13 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
     const j = readJournal(d);
     j.entries.pop();
     writeJournal(d, j);
-    assert.ok(hasProblem(validateMetadata(d).problems, /0010_class_name\.sql is not referenced/));
+    assert.ok(hasProblem(validateMetadata(d).problems, /0011_syllabus_per_book_part\.sql is not referenced/));
   });
 
   it('detects a duplicated journal entry', () => {
     const d = copyDir();
     const j = readJournal(d);
-    j.entries.push({ ...j.entries[10], idx: 11, when: j.entries[10].when + 1 });
+    j.entries.push({ ...j.entries[11], idx: 12, when: j.entries[11].when + 1 });
     writeJournal(d, j);
     const { problems } = validateMetadata(d);
     assert.ok(hasProblem(problems, /duplicate tag/));
@@ -152,7 +153,7 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
   it('detects future timestamps', () => {
     const d = copyDir();
     const j = readJournal(d);
-    j.entries[10].when = Date.now() + 10 * 365 * 24 * 3600 * 1000;
+    j.entries[11].when = Date.now() + 10 * 365 * 24 * 3600 * 1000;
     writeJournal(d, j);
     assert.ok(hasProblem(validateMetadata(d).problems, /in the future/));
   });
@@ -165,23 +166,23 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
 
   it('detects an extra unreferenced SQL file', () => {
     const d = copyDir();
-    fs.writeFileSync(path.join(d, '0011_extra.sql'), 'SELECT 1;');
-    assert.ok(hasProblem(validateMetadata(d).problems, /0011_extra\.sql is not referenced/));
+    fs.writeFileSync(path.join(d, '0012_extra.sql'), 'SELECT 1;');
+    assert.ok(hasProblem(validateMetadata(d).problems, /0012_extra\.sql is not referenced/));
   });
 
   it('detects a stale latest snapshot', () => {
     const d = copyDir();
-    fs.rmSync(path.join(d, 'meta', '0010_snapshot.json'));
-    assert.ok(hasProblem(validateMetadata(d).problems, /Latest snapshot idx \(5\)/));
+    fs.rmSync(path.join(d, 'meta', '0011_snapshot.json'));
+    assert.ok(hasProblem(validateMetadata(d).problems, /Latest snapshot idx \(10\)/));
   });
 
   it('detects a broken snapshot chain', () => {
     const d = copyDir();
-    const f = path.join(d, 'meta', '0010_snapshot.json');
+    const f = path.join(d, 'meta', '0011_snapshot.json');
     const s = JSON.parse(fs.readFileSync(f, 'utf8'));
     s.prevId = '11111111-1111-1111-1111-111111111111';
     fs.writeFileSync(f, JSON.stringify(s));
-    assert.ok(hasProblem(validateMetadata(d).problems, /0010_snapshot\.json: prevId/));
+    assert.ok(hasProblem(validateMetadata(d).problems, /0011_snapshot\.json: prevId/));
   });
 
   it('detects an undocumented missing snapshot', () => {
@@ -192,7 +193,7 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
 
   it('detects a snapshot with the wrong dialect', () => {
     const d = copyDir();
-    const f = path.join(d, 'meta', '0010_snapshot.json');
+    const f = path.join(d, 'meta', '0011_snapshot.json');
     const s = JSON.parse(fs.readFileSync(f, 'utf8'));
     s.dialect = 'mysql';
     fs.writeFileSync(f, JSON.stringify(s));
@@ -202,10 +203,10 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
   it('drizzle-kit generate flags a stale snapshot as a would-be duplicate migration', () => {
     const d = copyDir();
     // Reproduce the original defect: journal/SQL are ahead of the latest snapshot.
-    fs.rmSync(path.join(d, 'meta', '0010_snapshot.json'));
+    fs.rmSync(path.join(d, 'meta', '0011_snapshot.json'));
     const j = readJournal(d);
     const r = runDrizzleKitChecks(repoRoot, d);
-    assert.ok(j.entries.length === 11);
+    assert.ok(j.entries.length === 12);
     assert.ok(r.problems.length > 0, 'expected generate to report schema drift');
     assert.ok(hasProblem(r.problems, /generate/));
   });
