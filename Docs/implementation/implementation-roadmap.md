@@ -375,20 +375,23 @@ Implement educational planning and execution tracking.
 
 ### Scope
 
-- Syllabus.
+- Syllabus: one canonical Syllabus per Book.
 - Syllabus Items.
-- Lesson Plans.
-- Lesson Plan Items.
-- Teacher submission.
-- Supervisor review.
-- Approval/rejection.
-- Completion tracking.
-- Substitute read-only access.
+- Lesson Plans: one term Lesson Plan per Class.
+- Lesson Plan Items, assigned to term sessions.
+- Dedicated Teacher Lesson Plans section.
+- Teacher submission (initial review).
+- Supervisor review and a single approval/rejection.
+- Later modification of an approved plan without re-approval, with Supervisor notification and change history.
+- Completion tracking per session activity.
+- Substitute read-only access to the whole term plan.
 - Audit.
 
 ### Expected Result
 
-The Supervisor defines what a Book/Segment requires, while the Teacher creates and submits a lesson plan based on those requirements.
+The Supervisor defines what a Book requires. The Teacher creates one term plan per Class, assigns selected activities to term sessions and submits it for one initial review. After approval the Teacher can keep modifying the plan, with the Supervisor notified and a change history kept, and tracks completion. A substitute Teacher can read the whole plan, including what is completed, what remains and what is planned for the current session.
+
+Book Parts and Book Segments are not part of Syllabus or Lesson Plan logic.
 
 ---
 

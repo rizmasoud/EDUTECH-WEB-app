@@ -539,7 +539,7 @@ The system must preserve which teacher actually performed a session, including s
 
 A Syllabus represents formal educational requirements defined by the Supervisor.
 
-A Syllabus belongs to a Book and may optionally be associated with a Book Segment.
+Each Book has exactly one Syllabus, shared by all Classes that use the Book. Book Parts and Book Segments are not Syllabus scopes.
 
 Syllabus items may represent requirements such as:
 

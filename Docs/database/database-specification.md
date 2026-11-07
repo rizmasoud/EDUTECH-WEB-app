@@ -896,6 +896,8 @@ Rules:
 
 A Syllabus represents canonical educational requirements.
 
+Required behavior: each Book has exactly one Syllabus, shared by all Classes that use the Book. Book Parts and Book Segments are not Syllabus scopes, and `book_segment_id` plays no part in identifying or selecting a Syllabus. The current schema does not enforce one Syllabus per Book. The enforcement mechanism is not defined here.
+
 ---
 
 # 25. Syllabus Items
@@ -978,6 +980,8 @@ Teacher → LessonPlans
 
 A Lesson Plan belongs to a Class rather than necessarily belonging to a single Class Session.
 
+Required behavior: each Class has exactly one Lesson Plan for its academic term, covering the whole term (private Classes included). An approved Lesson Plan is not immutable; later modifications do not require another approval. The plan's change history and the Supervisor notification of each later modification are required. The current schema does not enforce one Lesson Plan per Class or define a change history. The structures for these are not defined here.
+
 ---
 
 # 27. Lesson Plan Items
@@ -1007,6 +1011,8 @@ updated_at
 The nullable relationship allows a Lesson Plan item to represent a teacher-specific activity that does not map directly to a canonical Syllabus Item.
 
 Historical Lesson Plans must not silently change meaning when the current Syllabus changes.
+
+Required behavior: a Lesson Plan item can be assigned to a session of the Class's term, and the plan carries the Teacher's activity descriptions and any supplementary notes, which an authorized substitute Teacher can read. Completion is tracked per item. The current schema has no session assignment or separate notes field for items. The structures for these are not defined here.
 
 ---
 

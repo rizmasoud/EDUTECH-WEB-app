@@ -454,7 +454,7 @@ Tests should verify:
 
 Tests should verify:
 
-- Syllabus belongs to a valid Book or Book Segment
+- Syllabus belongs to a valid Book (one Syllabus per Book; Parts and Segments are not Syllabus scopes)
 - Supervisor controls canonical Syllabus
 - required items are represented correctly
 - sequence order is preserved

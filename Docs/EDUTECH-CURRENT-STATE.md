@@ -155,10 +155,12 @@ Do not invent payment formulas. If the rules are not documented or conflict with
 
 ### 5.10 Lesson Plans and Syllabus
 
-- Supervisor-defined requirements for each book
-- Teacher lesson-plan submissions
+- Supervisor-defined canonical syllabus for each book (one per book; Parts and Segments are not syllabus scopes)
+- One term lesson plan per class (private classes included), submitted by the teacher for one initial supervisor review
+- Free modification after approval, with supervisor notification and change history
+- Dedicated teacher Lesson Plans section; weekly timetable shortcuts are supplementary
+- Read-only visibility of the whole term plan, including completion and the current session, for authorized substitute teachers
 - Relevant attachments
-- Visibility for authorized substitute teachers
 - Configurable deadlines where required
 - Validation of attachment type and size
 

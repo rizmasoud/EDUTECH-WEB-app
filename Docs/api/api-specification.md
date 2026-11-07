@@ -568,6 +568,8 @@ DELETE /syllabus-items/{id}
 
 Deletion must respect historical integrity requirements.
 
+Required behavior: a Syllabus is identified by its Book; each Book has exactly one. No endpoint scopes a Syllabus to a Book Part or Book Segment.
+
 ---
 
 # 24. Students API
@@ -811,6 +813,18 @@ POST /lesson-plan-items/{id}/complete
 ```
 
 The backend must enforce who can perform each action.
+
+## 32.1 Required Behavior
+
+These rules are confirmed requirements (`Docs/business/business-rules.md` §16). The endpoint definitions above do not yet express them and the current implementation does not yet satisfy them. No new endpoint, field or status is defined here.
+
+- **One term plan per Class.** A Class has one Lesson Plan for its term, private Classes included.
+- **Teacher access.** A Teacher can list and open the plans of all Classes assigned to them without going through the weekly timetable.
+- **Initial submission.** Every selected Syllabus activity must be assigned to a term session. Selecting every Syllabus activity is not required, and unselected activities never block submission.
+- **Approval.** The Supervisor approves or rejects once. A later modification by the Teacher is allowed without another approval, notifies the Supervisor, and appears in a change history the Supervisor can read.
+- **Execution.** After approval the Teacher can mark each planned activity completed or not completed and see progress against the term plan.
+- **Substitute.** An approved substitute Teacher can read the whole plan, its completed and incomplete activities, the activities planned for the current session, and the original Teacher's descriptions and notes, and cannot modify the plan.
+- **Authorization.** The backend enforces all of the above. Authorization must not be weakened by these requirements.
 
 ---
 

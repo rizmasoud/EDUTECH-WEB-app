@@ -673,10 +673,13 @@ Teachers must not modify the canonical Syllabus.
 
 ## 15.2 Syllabus Scope
 
-A Syllabus may belong to:
+Each Book has exactly one canonical Syllabus.
 
-- A Book
-- Optionally a specific BookSegment
+The Syllabus is the list of teaching activities expected for that Book, for example teaching a vocabulary section, review, listening skills or speaking practice. It is shared by every Class that uses the Book.
+
+The Syllabus does not assign activities to specific sessions of a term. It does not prescribe which activity takes place in session 1, 2, 3 and so on. Distributing activities over the sessions of a term is the Teacher's Lesson Plan (§16).
+
+Book Parts and Book Segments are not Syllabus scopes. A Syllabus is not created or selected per Part or per Segment, and Syllabus and Lesson Plan logic ignores Parts and Segments.
 
 Syllabus items may represent requirements such as:
 
@@ -697,6 +700,8 @@ The `sequenceOrder` provides a recommended ordering.
 
 Sequence order must not automatically be interpreted as a strict dependency unless explicitly configured.
 
+Marking an item as required does not oblige a Teacher to include it in a Lesson Plan. Selecting every Syllabus item is never mandatory, and a Lesson Plan must not be blocked from submission or approval because some Syllabus items were not selected. How much content a term plan covers is an educational decision shared between the Teacher and the Supervisor, not a software validation rule.
+
 ---
 
 # 16. Lesson Plans
@@ -705,7 +710,11 @@ Sequence order must not automatically be interpreted as a strict dependency unle
 
 A LessonPlan belongs to a Class and is created by its Teacher.
 
-A LessonPlan is an execution plan based on the canonical Syllabus.
+Each Class has exactly one independent term Lesson Plan for its academic term. Private Classes have term Lesson Plans too. One plan covers the entire term; there is not one Lesson Plan document per session.
+
+A LessonPlan is the Teacher's execution plan, based on the canonical Syllabus of the Class's Book. Its activities are either selected Syllabus activities or custom activities added by the Teacher.
+
+The Teacher may select Syllabus activities, choose which term session each activity belongs to, change the order of activities, add custom activities, and leave Syllabus activities out.
 
 ---
 
@@ -727,14 +736,19 @@ The normal workflow is:
 ```text
 View Syllabus
       ↓
-Create Lesson Plan
+Create the term Lesson Plan
       ↓
-Submit
+Select activities and assign each selected
+Syllabus activity to a term session
+      ↓
+Submit (initial review)
       ↓
 Supervisor Review
       ↓
-Approve / Reject
+Approve / Reject (once)
 ```
+
+Selected Syllabus activities must be assigned to a term session before the initial submission.
 
 The Teacher may edit a Draft.
 
@@ -742,9 +756,23 @@ Once submitted, the appropriate review rules apply.
 
 ---
 
-## 16.4 Lesson Plan Completion
+## 16.4 Approval and Later Modification
 
-Lesson Plan items may be explicitly marked completed.
+The Supervisor approves or rejects the term Lesson Plan once, as its initial review.
+
+An approved Lesson Plan is not frozen. After initial approval the Teacher may freely modify the plan. A later modification does not require another approval and does not return the plan to review.
+
+Every later modification must notify the Supervisor.
+
+The system maintains a change history so that the Supervisor can see what changed and when.
+
+---
+
+## 16.5 Execution Tracking and Completion
+
+After the term plan is approved, the Teacher tracks execution against it.
+
+The activities assigned to each session are shown as a to-do list. The Teacher can mark each activity as completed or not completed. Progress is tracked against the term plan, and no separate Lesson Plan document is created per session.
 
 Completion should record completion time where applicable.
 
@@ -754,11 +782,42 @@ Payroll may consume valid completion information according to the Payroll Policy
 
 ---
 
-## 16.5 Substitute Access
+## 16.6 Teacher Access
 
-An approved substitute Teacher may view the relevant Lesson Plan as needed to conduct the Session.
+The Teacher has a dedicated Lesson Plans section. It lists all Classes assigned to that Teacher and lets the Teacher open and manage each Class's term plan independently of the weekly timetable.
+
+The weekly timetable may offer shortcuts to the corresponding Class Lesson Plan. They are supplementary and are never the only way to reach a plan.
+
+---
+
+## 16.7 Substitute Access
+
+Lesson Plans also exist to help a substitute Teacher continue teaching when the regular Teacher is absent. This is a core requirement.
+
+An approved substitute Teacher must be able to:
+
+- View the entire term Lesson Plan for the Class.
+- See which activities are already completed and which remain incomplete.
+- Identify what is planned for the current session.
+- Read the original Teacher's activity descriptions and supplementary notes.
+
+The substitute has read-only access to the term plan itself and must not be able to modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
 
 The substitute must not be able to alter the canonical Syllabus.
+
+---
+
+## 16.8 Implementation Status and Open Points
+
+> **Implementation status:** §15.2, §15.3 and §16.1–§16.7 are confirmed product requirements. The current implementation does not yet satisfy them. This document defines no new endpoint, field, table or status for them.
+
+These points are not decided and must not be treated as approved:
+
+- Whether a substitute may record completion for the session being covered, or only view.
+- How long a substitute keeps read access to a plan after the substituted session.
+- Whether custom activities must also be assigned to a session before the initial submission.
+- Whether marking an activity completed or not completed counts as a modification that notifies the Supervisor, or is recorded without a notification.
+- Whether the Teacher may edit a plan while it is awaiting its initial review.
 
 ---
 
