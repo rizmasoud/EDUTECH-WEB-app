@@ -59,10 +59,10 @@ describe('migration metadata (real repository files)', () => {
   it('passes every offline metadata check', () => {
     const { problems, summary } = validateMetadata(realDir);
     assert.deepEqual(problems, []);
-    assert.equal(summary.journalEntries, 12);
-    assert.equal(summary.sqlFiles, 12);
-    assert.equal(summary.discoveredByMigrator, 12);
-    assert.equal(summary.latestSnapshotIdx, 11);
+    assert.equal(summary.journalEntries, EXPECTED_TAGS.length);
+    assert.equal(summary.sqlFiles, EXPECTED_TAGS.length);
+    assert.equal(summary.discoveredByMigrator, EXPECTED_TAGS.length);
+    assert.equal(summary.latestSnapshotIdx, EXPECTED_TAGS.length - 1);
   });
 
   it('journal lists all SQL files in order with the repaired idx5 tag', () => {
@@ -72,9 +72,9 @@ describe('migration metadata (real repository files)', () => {
     assert.deepEqual(sql, EXPECTED_TAGS.map((t) => `${t}.sql`));
   });
 
-  it('installed Drizzle migrator discovers all 12 migrations in order', () => {
+  it('installed Drizzle migrator discovers every migration in order', () => {
     const migrations = readMigrationFiles({ migrationsFolder: realDir });
-    assert.equal(migrations.length, 12);
+    assert.equal(migrations.length, EXPECTED_TAGS.length);
     const whens = readJournal(realDir).entries.map((e: { when: number }) => e.when);
     assert.deepEqual(migrations.map((m) => m.folderMillis), whens);
     for (let i = 1; i < whens.length; i++) assert.ok(whens[i] > whens[i - 1]);
@@ -206,7 +206,7 @@ describe('migration metadata (negative fixtures in temp copies)', () => {
     fs.rmSync(path.join(d, 'meta', '0011_snapshot.json'));
     const j = readJournal(d);
     const r = runDrizzleKitChecks(repoRoot, d);
-    assert.ok(j.entries.length === 12);
+    assert.ok(j.entries.length === EXPECTED_TAGS.length);
     assert.ok(r.problems.length > 0, 'expected generate to report schema drift');
     assert.ok(hasProblem(r.problems, /generate/));
   });

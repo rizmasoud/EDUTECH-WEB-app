@@ -16,6 +16,9 @@ import {
 } from '../../scripts/lib/migration-status';
 
 const realDir = path.resolve(__dirname, '../../apps/api/drizzle');
+/** Authoritative migration list (repository journal); counts are derived from it, never hardcoded. */
+const JOURNAL_TAGS: string[] = JSON.parse(fs.readFileSync(path.join(realDir, 'meta', '_journal.json'), 'utf8')).entries.map((e: { tag: string }) => e.tag);
+const TOTAL = JOURNAL_TAGS.length;
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'edutech-migstatus-test-'));
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
@@ -64,8 +67,8 @@ describe('inspectMigrations', () => {
       assert.equal(r.state, 'empty');
       assert.equal(r.trackingTablePresent, false);
       assert.equal(r.appliedCount, 0);
-      assert.equal(r.pendingCount, 12);
-      assert.equal(r.migratorWouldApply.length, 12);
+      assert.equal(r.pendingCount, TOTAL);
+      assert.equal(r.migratorWouldApply.length, TOTAL);
       assert.deepEqual(r.problems, []);
       assert.equal(r.safeToMigrate, true);
       assert.equal(await snapshotCounts(pg), before, 'inspection must not change the database');
@@ -81,7 +84,7 @@ describe('inspectMigrations', () => {
       const before = await snapshotCounts(pg);
       const r = await inspect(pg);
       assert.equal(r.state, 'tracked');
-      assert.equal(r.appliedCount, 12);
+      assert.equal(r.appliedCount, TOTAL);
       assert.equal(r.pendingCount, 0);
       assert.deepEqual(r.migratorWouldApply, []);
       assert.deepEqual(r.problems, []);
@@ -100,14 +103,7 @@ describe('inspectMigrations', () => {
       assert.equal(r.appliedCount, 6);
       assert.deepEqual(
         r.migrations.filter((m) => m.status === 'pending').map((m) => m.tag),
-        [
-          '0006_class_sessions_unique',
-          '0007_teacher_attendance_unique',
-          '0008_payrolls_unique',
-          '0009_class_color',
-          '0010_class_name',
-          '0011_syllabus_per_book_part',
-        ],
+        JOURNAL_TAGS.slice(6),
       );
       assert.deepEqual(r.migratorWouldApply, r.migrations.filter((m) => m.status === 'pending').map((m) => m.tag));
       assert.equal(r.safeToMigrate, true);
@@ -152,7 +148,7 @@ describe('inspectMigrations', () => {
       // Simulate the historical hazard: an applied row with a timestamp newer than later migrations.
       await pg.exec(`update drizzle.__drizzle_migrations set created_at = ${Date.now() + 1_000_000} where id = (select max(id) from drizzle.__drizzle_migrations)`);
       const r = await inspect(pg);
-      assert.equal(r.pendingCount, 6);
+      assert.equal(r.pendingCount, TOTAL - 6);
       assert.deepEqual(r.migratorWouldApply, []);
       assert.equal(r.safeToMigrate, false);
       assert.ok(r.problems.some((p) => /would SKIP/.test(p)));
