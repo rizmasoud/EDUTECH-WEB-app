@@ -899,6 +899,8 @@ Creates Lesson Plan
       ↓
 Adds relevant Lesson Plan Items
       ↓
+Assigns every item to a session of the Class
+      ↓
 Saves Draft
       ↓
 Submits
@@ -907,6 +909,8 @@ Supervisor reviews
       ↓
 Approve / Reject
 ```
+
+A SUBMITTED plan is locked. The Teacher must withdraw it to DRAFT before editing and then resubmit it.
 
 ---
 
@@ -928,7 +932,9 @@ The exact editing restrictions after rejection should be enforced by backend sta
 
 ## 17.4 Completion
 
-Teacher marks appropriate Lesson Plan items as completed.
+Teacher marks appropriate Lesson Plan items as completed or not completed. Completion changes and ordinary notes notify no one.
+
+After initial approval the Class's current Teacher may restructure the plan without another approval. Its status remains APPROVED, and structural changes notify the active Supervisors and are recorded in a change history.
 
 Completion information may later be consumed by Payroll according to Payroll Policy.
 
@@ -950,7 +956,9 @@ Teach Session
 Record permitted operational data
 ```
 
-The substitute receives read access to the relevant Lesson Plan.
+The substitute can read the entire term Lesson Plan of the Class, including what is completed, what remains and what is planned for the session being covered.
+
+The substitute can mark an item complete or incomplete only when it is assigned to the session they were approved to replace. Read access and completion-write access are separate permissions. The substitute cannot make structural changes to the plan.
 
 The substitute does not gain ownership of the canonical Syllabus.
 

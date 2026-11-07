@@ -980,7 +980,7 @@ Teacher → LessonPlans
 
 A Lesson Plan belongs to a Class rather than necessarily belonging to a single Class Session.
 
-Required behavior: each Class has exactly one Lesson Plan for its academic term, covering the whole term (private Classes included). An approved Lesson Plan is not immutable; later modifications do not require another approval. The plan's change history and the Supervisor notification of each later modification are required. The current schema does not enforce one Lesson Plan per Class or define a change history. The structures for these are not defined here.
+Required behavior: each Class has exactly one Lesson Plan for its academic term, covering the whole term (private Classes included). A SUBMITTED plan is locked until it is withdrawn to DRAFT. An APPROVED plan is not immutable: the Class's current Teacher can restructure it without another approval, and its status remains APPROVED. Structural changes to an APPROVED plan notify the active Supervisors and are kept in a change history; completion changes and ordinary notes notify no one. The current schema does not enforce one Lesson Plan per Class or define a change history. The structures for these are not defined here.
 
 ---
 
@@ -1012,7 +1012,7 @@ The nullable relationship allows a Lesson Plan item to represent a teacher-speci
 
 Historical Lesson Plans must not silently change meaning when the current Syllabus changes.
 
-Required behavior: a Lesson Plan item can be assigned to a session of the Class's term, and the plan carries the Teacher's activity descriptions and any supplementary notes, which an authorized substitute Teacher can read. Completion is tracked per item. The current schema has no session assignment or separate notes field for items. The structures for these are not defined here.
+Required behavior: before initial submission every Lesson Plan item, whether copied from the canonical Syllabus or custom, must be assigned to a valid session of the same Class, and at least one item is required. The plan carries the Teacher's activity descriptions and any supplementary notes, which an authorized substitute Teacher can read. Completion is tracked per item; an approved substitute can change an item's completion only when it is assigned to their own approved replacement session. The current schema has no session assignment or separate notes field for items. The structures for these are not defined here.
 
 ---
 

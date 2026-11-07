@@ -586,7 +586,7 @@ Teachers can:
 
 Supervisors can review and approve or reject submitted plans.
 
-A substitute teacher may view the relevant Lesson Plan in read-only mode.
+An approved substitute teacher may read the whole Lesson Plan. They may mark an item complete or incomplete only when it is assigned to the session they were approved to replace, and cannot make structural changes to the plan.
 
 Lesson Plan completion can be used as an input to payroll calculations, but the Lesson Plan itself does not calculate payroll.
 

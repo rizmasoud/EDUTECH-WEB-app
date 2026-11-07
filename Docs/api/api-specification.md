@@ -820,10 +820,12 @@ These rules are confirmed requirements (`Docs/business/business-rules.md` §16).
 
 - **One term plan per Class.** A Class has one Lesson Plan for its term, private Classes included.
 - **Teacher access.** A Teacher can list and open the plans of all Classes assigned to them without going through the weekly timetable.
-- **Initial submission.** Every selected Syllabus activity must be assigned to a term session. Selecting every Syllabus activity is not required, and unselected activities never block submission.
-- **Approval.** The Supervisor approves or rejects once. A later modification by the Teacher is allowed without another approval, notifies the Supervisor, and appears in a change history the Supervisor can read.
+- **Initial submission.** Every selected activity, whether copied from the canonical Syllabus or custom, must be assigned to a valid session of the same Class, and at least one activity is required. Omitted Syllabus activities never block submission.
+- **Submitted state.** A SUBMITTED plan is locked. The Teacher must withdraw it to DRAFT before editing and then resubmit it.
+- **Approval.** The Supervisor approves or rejects once. The Class's current Teacher can then freely restructure the APPROVED plan without another approval, and its status remains APPROVED.
+- **Notifications and history.** Structural changes to an APPROVED plan notify the active Supervisors and appear in a change history the Supervisor can read. Completion changes and ordinary notes notify no one.
 - **Execution.** After approval the Teacher can mark each planned activity completed or not completed and see progress against the term plan.
-- **Substitute.** An approved substitute Teacher can read the whole plan, its completed and incomplete activities, the activities planned for the current session, and the original Teacher's descriptions and notes, and cannot modify the plan.
+- **Substitute.** Read access and completion-write access are separate permissions. An approved substitute Teacher can read the whole plan, its completed and incomplete activities, the activities planned for the current session, and the original Teacher's descriptions and notes. The substitute can mark an item complete or incomplete only when it is assigned to their own approved replacement session, and cannot make structural changes to the plan.
 - **Authorization.** The backend enforces all of the above. Authorization must not be weakened by these requirements.
 
 ---

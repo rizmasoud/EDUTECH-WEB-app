@@ -738,8 +738,8 @@ View Syllabus
       ↓
 Create the term Lesson Plan
       ↓
-Select activities and assign each selected
-Syllabus activity to a term session
+Select Syllabus activities or add custom
+activities, and assign each to a term session
       ↓
 Submit (initial review)
       ↓
@@ -748,11 +748,16 @@ Supervisor Review
 Approve / Reject (once)
 ```
 
-Selected Syllabus activities must be assigned to a term session before the initial submission.
+Initial submission requires:
+
+- Every selected activity, whether copied from the canonical Syllabus or added as a custom activity, is assigned to a valid session of the same Class.
+- At least one activity.
+
+Syllabus activities the Teacher leaves out never block submission.
 
 The Teacher may edit a Draft.
 
-Once submitted, the appropriate review rules apply.
+A SUBMITTED plan is locked. To edit it, the Teacher must first withdraw it to DRAFT and then resubmit it.
 
 ---
 
@@ -760,9 +765,9 @@ Once submitted, the appropriate review rules apply.
 
 The Supervisor approves or rejects the term Lesson Plan once, as its initial review.
 
-An approved Lesson Plan is not frozen. After initial approval the Teacher may freely modify the plan. A later modification does not require another approval and does not return the plan to review.
+An approved Lesson Plan is not frozen. After initial approval the Class's current Teacher can freely restructure the plan without another approval. The plan's status remains APPROVED.
 
-Every later modification must notify the Supervisor.
+Structural changes to an APPROVED plan notify the active Supervisors. Structural changes include, for example, adding or removing an activity, reordering activities, and moving an activity to a different session. Marking an activity completed or not completed, and ordinary notes, do not notify anyone.
 
 The system maintains a change history so that the Supervisor can see what changed and when.
 
@@ -772,7 +777,7 @@ The system maintains a change history so that the Supervisor can see what change
 
 After the term plan is approved, the Teacher tracks execution against it.
 
-The activities assigned to each session are shown as a to-do list. The Teacher can mark each activity as completed or not completed. Progress is tracked against the term plan, and no separate Lesson Plan document is created per session.
+The activities assigned to each session are shown as a to-do list. The Class's current Teacher can mark each activity as completed or not completed. Progress is tracked against the term plan, and no separate Lesson Plan document is created per session.
 
 Completion should record completion time where applicable.
 
@@ -801,7 +806,12 @@ An approved substitute Teacher must be able to:
 - Identify what is planned for the current session.
 - Read the original Teacher's activity descriptions and supplementary notes.
 
-The substitute has read-only access to the term plan itself and must not be able to modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
+Read access and completion-write access are separate permissions; having one does not grant the other.
+
+- **Read:** the substitute can read the entire term plan, including the original Teacher's activity descriptions and supplementary notes.
+- **Completion:** the substitute can mark an activity complete or incomplete only when that activity is assigned to the session the substitute has been approved to replace.
+
+The substitute cannot make structural changes to the plan, such as adding, removing, reordering or moving activities or changing session assignments. Apart from the completion permission above, the substitute cannot modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
 
 The substitute must not be able to alter the canonical Syllabus.
 
@@ -813,11 +823,8 @@ The substitute must not be able to alter the canonical Syllabus.
 
 These points are not decided and must not be treated as approved:
 
-- Whether a substitute may record completion for the session being covered, or only view.
-- How long a substitute keeps read access to a plan after the substituted session.
-- Whether custom activities must also be assigned to a session before the initial submission.
-- Whether marking an activity completed or not completed counts as a modification that notifies the Supervisor, or is recorded without a notification.
-- Whether the Teacher may edit a plan while it is awaiting its initial review.
+- How long a substitute keeps read access to a plan after the covered session is completed. The duration is not decided, and no specific duration is a confirmed rule.
+- Whether the change history also records changes other than structural ones, such as completion changes and notes. This concerns the history only; notification rules are decided in §16.4.
 
 ---
 
