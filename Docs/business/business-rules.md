@@ -673,10 +673,13 @@ Teachers must not modify the canonical Syllabus.
 
 ## 15.2 Syllabus Scope
 
-A Syllabus may belong to:
+Each Book has exactly one canonical Syllabus.
 
-- A Book
-- Optionally a specific BookSegment
+The Syllabus is the list of teaching activities expected for that Book, for example teaching a vocabulary section, review, listening skills or speaking practice. It is shared by every Class that uses the Book.
+
+The Syllabus does not assign activities to specific sessions of a term. It does not prescribe which activity takes place in session 1, 2, 3 and so on. Distributing activities over the sessions of a term is the Teacher's Lesson Plan (§16).
+
+Book Parts and Book Segments are not Syllabus scopes. A Syllabus is not created or selected per Part or per Segment, and Syllabus and Lesson Plan logic ignores Parts and Segments.
 
 Syllabus items may represent requirements such as:
 
@@ -697,6 +700,8 @@ The `sequenceOrder` provides a recommended ordering.
 
 Sequence order must not automatically be interpreted as a strict dependency unless explicitly configured.
 
+Marking an item as required does not oblige a Teacher to include it in a Lesson Plan. Selecting every Syllabus item is never mandatory, and a Lesson Plan must not be blocked from submission or approval because some Syllabus items were not selected. How much content a term plan covers is an educational decision shared between the Teacher and the Supervisor, not a software validation rule.
+
 ---
 
 # 16. Lesson Plans
@@ -705,7 +710,11 @@ Sequence order must not automatically be interpreted as a strict dependency unle
 
 A LessonPlan belongs to a Class and is created by its Teacher.
 
-A LessonPlan is an execution plan based on the canonical Syllabus.
+Each Class has exactly one independent term Lesson Plan for its academic term. Private Classes have term Lesson Plans too. One plan covers the entire term; there is not one Lesson Plan document per session.
+
+A LessonPlan is the Teacher's execution plan, based on the canonical Syllabus of the Class's Book. Its activities are either selected Syllabus activities or custom activities added by the Teacher.
+
+The Teacher may select Syllabus activities, choose which term session each activity belongs to, change the order of activities, add custom activities, and leave Syllabus activities out.
 
 ---
 
@@ -727,24 +736,48 @@ The normal workflow is:
 ```text
 View Syllabus
       ↓
-Create Lesson Plan
+Create the term Lesson Plan
       ↓
-Submit
+Select Syllabus activities or add custom
+activities, and assign each to a term session
+      ↓
+Submit (initial review)
       ↓
 Supervisor Review
       ↓
-Approve / Reject
+Approve / Reject (once)
 ```
+
+Initial submission requires:
+
+- Every selected activity, whether copied from the canonical Syllabus or added as a custom activity, is assigned to a valid session of the same Class.
+- At least one activity.
+
+Syllabus activities the Teacher leaves out never block submission.
 
 The Teacher may edit a Draft.
 
-Once submitted, the appropriate review rules apply.
+A SUBMITTED plan is locked. To edit it, the Teacher must first withdraw it to DRAFT and then resubmit it.
 
 ---
 
-## 16.4 Lesson Plan Completion
+## 16.4 Approval and Later Modification
 
-Lesson Plan items may be explicitly marked completed.
+The Supervisor approves or rejects the term Lesson Plan once, as its initial review.
+
+An approved Lesson Plan is not frozen. After initial approval the Class's current Teacher can freely restructure the plan without another approval. The plan's status remains APPROVED.
+
+Structural changes to an APPROVED plan notify the active Supervisors. Structural changes include, for example, adding or removing an activity, reordering activities, and moving an activity to a different session. Marking an activity completed or not completed, and ordinary notes, do not notify anyone.
+
+The system maintains a change history so that the Supervisor can see what changed and when. The change history can be viewed by the Supervisors and by the Class's current responsible Teacher (the plan owner). Substitute Teachers cannot view it.
+
+---
+
+## 16.5 Execution Tracking and Completion
+
+After the term plan is approved, the Teacher tracks execution against it.
+
+The activities assigned to each session are shown as a to-do list. The Class's current Teacher can mark each activity as completed or not completed. Progress is tracked against the term plan, and no separate Lesson Plan document is created per session.
 
 Completion should record completion time where applicable.
 
@@ -754,11 +787,44 @@ Payroll may consume valid completion information according to the Payroll Policy
 
 ---
 
-## 16.5 Substitute Access
+## 16.6 Teacher Access
 
-An approved substitute Teacher may view the relevant Lesson Plan as needed to conduct the Session.
+The Teacher has a dedicated Lesson Plans section. It lists all Classes assigned to that Teacher and lets the Teacher open and manage each Class's term plan independently of the weekly timetable.
+
+The weekly timetable may offer shortcuts to the corresponding Class Lesson Plan. They are supplementary and are never the only way to reach a plan.
+
+---
+
+## 16.7 Substitute Access
+
+Lesson Plans also exist to help a substitute Teacher continue teaching when the regular Teacher is absent. This is a core requirement.
+
+An approved substitute Teacher must be able to:
+
+- View the entire term Lesson Plan for the Class.
+- See which activities are already completed and which remain incomplete.
+- Identify what is planned for the current session.
+- Read the original Teacher's activity descriptions and supplementary notes.
+
+Read access and completion-write access are separate permissions; having one does not grant the other.
+
+- **Read:** the substitute can read the entire term plan, including the original Teacher's activity descriptions and supplementary notes.
+- **Completion:** the substitute can mark an activity complete or incomplete only when that activity is assigned to the session the substitute has been approved to replace.
+
+The substitute cannot make structural changes to the plan, such as adding, removing, reordering or moving activities or changing session assignments, and cannot view the plan's change history. Apart from the completion permission above, the substitute cannot modify the original Teacher's plan. The substitute uses the Class's existing term plan; a Lesson Plan is never duplicated for a substitute.
 
 The substitute must not be able to alter the canonical Syllabus.
+
+---
+
+## 16.8 Implementation Status and Open Points
+
+> **Implementation status:** §15.2, §15.3 and §16.1–§16.7 are confirmed product requirements. The current implementation does not yet satisfy them. This document defines no new endpoint, field, table or status for them.
+
+These points are not decided and must not be treated as approved:
+
+- How long a substitute keeps read access to a plan after the covered session is completed. The duration is not decided, and no specific duration is a confirmed rule.
+- Whether non-structural events, such as completion or uncompletion changes and ordinary notes, are also recorded in the change history. This concerns history recording only. It is separate from notifications, which are decided in §16.4: completion changes and ordinary notes notify no one.
 
 ---
 

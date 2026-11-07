@@ -568,6 +568,8 @@ DELETE /syllabus-items/{id}
 
 Deletion must respect historical integrity requirements.
 
+Required behavior: a Syllabus is identified by its Book; each Book has exactly one. No endpoint scopes a Syllabus to a Book Part or Book Segment.
+
 ---
 
 # 24. Students API
@@ -811,6 +813,20 @@ POST /lesson-plan-items/{id}/complete
 ```
 
 The backend must enforce who can perform each action.
+
+## 32.1 Required Behavior
+
+These rules are confirmed requirements (`Docs/business/business-rules.md` §16). The endpoint definitions above do not yet express them and the current implementation does not yet satisfy them. No new endpoint, field or status is defined here.
+
+- **One term plan per Class.** A Class has one Lesson Plan for its term, private Classes included.
+- **Teacher access.** A Teacher can list and open the plans of all Classes assigned to them without going through the weekly timetable.
+- **Initial submission.** Every selected activity, whether copied from the canonical Syllabus or custom, must be assigned to a valid session of the same Class, and at least one activity is required. Omitted Syllabus activities never block submission.
+- **Submitted state.** A SUBMITTED plan is locked. The Teacher must withdraw it to DRAFT before editing and then resubmit it.
+- **Approval.** The Supervisor approves or rejects once. The Class's current Teacher can then freely restructure the APPROVED plan without another approval, and its status remains APPROVED.
+- **Notifications and history.** Structural changes to an APPROVED plan notify the active Supervisors and appear in a change history. The Supervisors and the Class's current Teacher (the plan owner) can read the change history; substitute Teachers cannot. Completion changes and ordinary notes notify no one. Whether non-structural events (completion changes, ordinary notes) are also recorded in the history is not decided.
+- **Execution.** After approval the Teacher can mark each planned activity completed or not completed and see progress against the term plan.
+- **Substitute.** Read access and completion-write access are separate permissions. An approved substitute Teacher can read the whole plan, its completed and incomplete activities, the activities planned for the current session, and the original Teacher's descriptions and notes. The substitute can mark an item complete or incomplete only when it is assigned to their own approved replacement session, and cannot make structural changes to the plan or view its change history.
+- **Authorization.** The backend enforces all of the above. Authorization must not be weakened by these requirements.
 
 ---
 

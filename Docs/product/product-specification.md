@@ -539,7 +539,7 @@ The system must preserve which teacher actually performed a session, including s
 
 A Syllabus represents formal educational requirements defined by the Supervisor.
 
-A Syllabus belongs to a Book and may optionally be associated with a Book Segment.
+Each Book has exactly one Syllabus, shared by all Classes that use the Book. Book Parts and Book Segments are not Syllabus scopes.
 
 Syllabus items may represent requirements such as:
 
@@ -586,7 +586,7 @@ Teachers can:
 
 Supervisors can review and approve or reject submitted plans.
 
-A substitute teacher may view the relevant Lesson Plan in read-only mode.
+An approved substitute teacher may read the whole Lesson Plan. They may mark an item complete or incomplete only when it is assigned to the session they were approved to replace, and cannot make structural changes to the plan.
 
 Lesson Plan completion can be used as an input to payroll calculations, but the Lesson Plan itself does not calculate payroll.
 

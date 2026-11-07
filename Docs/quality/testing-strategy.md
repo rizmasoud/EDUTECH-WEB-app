@@ -441,11 +441,14 @@ SUBMITTED
 
 Tests should verify:
 
-- Teacher owns or is authorized for the Class
+- only the Class's current responsible Teacher and authorized Supervisors can perform the permitted plan operations; other Teachers cannot
 - Supervisor can review
-- Teacher cannot modify an approved plan through normal workflow
-- completion is explicit
-- Substitute can view the relevant plan
+- after initial approval, the Class's current responsible Teacher can structurally modify the plan without another approval
+- the plan remains APPROVED after those structural changes
+- completion and uncompletion are explicit
+- an approved Substitute can read the whole plan
+- a Substitute cannot make structural changes
+- a Substitute can mark an item complete or incomplete only when it is assigned to their own approved replacement session
 - canonical Syllabus remains Supervisor-owned
 
 ---
@@ -454,7 +457,7 @@ Tests should verify:
 
 Tests should verify:
 
-- Syllabus belongs to a valid Book or Book Segment
+- Syllabus belongs to a valid Book (one Syllabus per Book; Parts and Segments are not Syllabus scopes)
 - Supervisor controls canonical Syllabus
 - required items are represented correctly
 - sequence order is preserved
