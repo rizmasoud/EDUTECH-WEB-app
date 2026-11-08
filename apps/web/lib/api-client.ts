@@ -483,11 +483,10 @@ class ApiClient {
   }
 
   // Syllabi and syllabus items (writes are Supervisor-only on the API)
-  /** GET /syllabi. The list carries book and segment names but no items; load a syllabus for its items. */
+  /** GET /syllabi. The Book is the only scope (one canonical syllabus per book). No items in the list; load a syllabus for its items. */
   async getSyllabi(filter: FindSyllabiFilterDto = {}): Promise<SyllabusDetail[]> {
     const params = new URLSearchParams();
     if (filter.bookId) params.set('bookId', filter.bookId);
-    if (filter.bookSegmentId) params.set('bookSegmentId', filter.bookSegmentId);
     const query = params.toString();
     const res = await this.request<any>(`/syllabi${query ? `?${query}` : ''}`);
     return Array.isArray(res) ? res : res?.items || [];

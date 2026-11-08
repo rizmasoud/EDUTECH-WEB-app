@@ -244,7 +244,6 @@ export const TeacherAttendanceRecordSchema = z.object({
 export const SyllabusSchema = z.object({
   id: z.string().uuid(),
   bookId: z.string().uuid(),
-  bookSegmentId: z.string().uuid().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -733,17 +732,14 @@ export const UpdateClassSessionSchema = z
 
 export const CreateSyllabusSchema = z.object({
   bookId: z.string().uuid('bookId must be a valid UUID'),
-  bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
 });
 
 export const UpdateSyllabusSchema = z.object({
   bookId: z.string().uuid('bookId must be a valid UUID').optional(),
-  bookSegmentId: z.string().uuid('bookSegmentId must be a valid UUID').nullable().optional(),
 });
 
 export const FindSyllabiFilterSchema = z.object({
   bookId: z.string().uuid().optional(),
-  bookSegmentId: z.string().uuid().optional(),
 });
 
 export const CreateSyllabusItemSchema = z.object({

@@ -896,7 +896,7 @@ Rules:
 
 A Syllabus represents canonical educational requirements.
 
-Required behavior: each Book has exactly one Syllabus, shared by all Classes that use the Book. Book Parts and Book Segments are not Syllabus scopes, and `book_segment_id` plays no part in identifying or selecting a Syllabus. The current schema does not enforce one Syllabus per Book. The enforcement mechanism is not defined here.
+Required behavior: each Book has exactly one Syllabus, shared by all Classes that use the Book. Book Parts and Book Segments are not Syllabus scopes, and `book_segment_id` plays no part in identifying or selecting a Syllabus. The schema enforces this with a unique index on `syllabi.book_id` (`syllabi_book_unique`, migration `0011_syllabus_unique_per_book`). The migration first checks for Books that already have more than one Syllabus and, if any exist, stops without changing data and lists the affected records; it never deletes, merges or reassigns Syllabi. The legacy `book_segment_id` column is kept unchanged and is ignored.
 
 ---
 

@@ -78,6 +78,13 @@
       "when": 1791690111000,
       "tag": "0010_class_name",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794105005642,
+      "tag": "0011_syllabus_unique_per_book",
+      "breakpoints": true
     }
   ]
 }

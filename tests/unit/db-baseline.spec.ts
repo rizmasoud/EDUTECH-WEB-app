@@ -27,6 +27,11 @@ import { parseArgs } from '../../scripts/db-baseline';
 
 const repoRoot = path.resolve(__dirname, '../..');
 const realDir = path.join(repoRoot, 'apps/api/drizzle');
+/** Authoritative migration list: the repository journal. Counts are derived from it, never hardcoded. */
+const JOURNAL = JSON.parse(fs.readFileSync(path.join(realDir, 'meta', '_journal.json'), 'utf8')).entries as { idx: number; tag: string; when: number }[];
+const TOTAL = JOURNAL.length;
+const LAST_TAG = JOURNAL[TOTAL - 1].tag;
+const snapshotFile = (idx: number) => `${String(idx).padStart(4, '0')}_snapshot.json`;
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'edutech-baseline-test-'));
 
 function treeStamp(dir: string): string {
@@ -76,10 +81,10 @@ function copyMigrations(name: string): string {
 describe('expected schema derivation', () => {
   it('replays repository SQL into one distinct fingerprint per migration prefix', async () => {
     const prefixes = await buildExpectedPrefixes(realDir);
-    assert.equal(prefixes.length, 11);
+    assert.equal(prefixes.length, TOTAL);
     const hashes = new Set(prefixes.map((p) => p.schemaHash));
-    assert.equal(hashes.size, 11, 'every migration changes the schema, so each prefix is distinguishable');
-    assert.deepEqual(prefixes.map((p) => p.count), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.equal(hashes.size, TOTAL, 'every migration changes the schema, so each prefix is distinguishable');
+    assert.deepEqual(prefixes.map((p) => p.count), Array.from({ length: TOTAL }, (_, i) => i + 1));
   });
 });
 
@@ -87,13 +92,13 @@ describe('dry run (planBaseline)', () => {
   it('compatible untracked schema: allowed, and the database is not changed at all', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const schemaBefore = fingerprintHash(await withPGliteReader(pg, introspectSchema));
       const p = await plan(pg);
       assert.equal(p.ok, true, p.refusals.join('; '));
       assert.equal(p.status?.state, 'untracked-existing-schema');
-      assert.equal(p.chosenCount, 11);
-      assert.equal(p.toRecord.length, 11);
+      assert.equal(p.chosenCount, TOTAL);
+      assert.equal(p.toRecord.length, TOTAL);
       assert.deepEqual(p.remainingPending, []);
       assert.deepEqual(await historyState(pg), { schemas: 0, tbl: false, rows: 0 });
       assert.equal(fingerprintHash(await withPGliteReader(pg, introspectSchema)), schemaBefore);
@@ -105,7 +110,7 @@ describe('dry run (planBaseline)', () => {
   it('records exactly the migrator hashes and timestamps in the plan', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const p = await plan(pg);
       const ms = readMigrationFiles({ migrationsFolder: realDir });
       assert.deepEqual(p.toRecord.map((r) => [r.hash, r.when]), ms.map((m) => [m.hash, m.folderMillis]));
@@ -121,7 +126,7 @@ describe('dry run (planBaseline)', () => {
       const p = await plan(pg);
       assert.equal(p.ok, true, p.refusals.join('; '));
       assert.equal(p.chosenCount, 6);
-      assert.equal(p.remainingPending.length, 5);
+      assert.equal(p.remainingPending.length, TOTAL - 6);
       assert.equal(p.remainingPending[0], '0006_class_sessions_unique');
     } finally {
       await pg.close();
@@ -130,7 +135,7 @@ describe('dry run (planBaseline)', () => {
 
   it('rejects an incompatible schema and reports the discrepancies', async () => {
     const cases: [string, string, RegExp][] = [
-      ['missing column', 'alter table classes drop column color', /unexpected-in-database.*column\|classes\|name/], // closest candidate is the state before 0010
+      ['missing column', 'alter table classes drop column color', /missing-in-database.*column\|classes\|color/],
       ['extra column', 'alter table classes add column extra_col text', /unexpected-in-database.*column\|classes\|extra_col/],
       ['changed type', 'alter table classes alter column color type text', /different.*column\|classes\|color/],
       ['extra table', 'create table stray (id int)', /unexpected-in-database.*relation\|stray/],
@@ -140,7 +145,7 @@ describe('dry run (planBaseline)', () => {
     for (const [name, ddl, re] of cases) {
       const pg = new PGlite();
       try {
-        await rawReplay(pg, 11);
+        await rawReplay(pg, TOTAL);
         await pg.exec(ddl);
         const p = await plan(pg);
         assert.equal(p.ok, false, name);
@@ -157,12 +162,11 @@ describe('dry run (planBaseline)', () => {
   it('a schema that equals an EARLIER migration state is baselined at that state, not at the latest', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
-      await pg.exec('alter table classes drop column name'); // exactly the state before 0010
+      await rawReplay(pg, TOTAL - 1); // exactly the state before the latest migration
       const p = await plan(pg);
       assert.equal(p.ok, true, p.refusals.join('; '));
-      assert.equal(p.chosenCount, 10);
-      assert.deepEqual(p.remainingPending, ['0010_class_name']);
+      assert.equal(p.chosenCount, TOTAL - 1);
+      assert.deepEqual(p.remainingPending, [LAST_TAG]);
     } finally {
       await pg.close();
     }
@@ -194,7 +198,7 @@ describe('dry run (planBaseline)', () => {
   it('rejects inconsistent repository metadata (never repairs it)', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const d = copyMigrations('bad-journal');
       const jp = path.join(d, 'meta', '_journal.json');
       const j = JSON.parse(fs.readFileSync(jp, 'utf8'));
@@ -213,7 +217,7 @@ describe('dry run (planBaseline)', () => {
   it('rejects when repository SQL no longer describes the database (edited migration)', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const d = copyMigrations('edited-sql');
       fs.appendFileSync(path.join(d, '0010_class_name.sql'), '\n--> statement-breakpoint\nALTER TABLE "classes" ADD COLUMN "zzz" text;');
       const p = await plan(pg, d);
@@ -226,18 +230,19 @@ describe('dry run (planBaseline)', () => {
 });
 
 describe('ambiguity needs an explicit --target', () => {
-  /** Repository copy with a schema-neutral 0011 migration, so prefixes 11 and 12 are identical. */
+  const EXTRA_TAG = `${String(TOTAL).padStart(4, '0')}_data_only`;
+  /** Repository copy with one extra schema-neutral migration, so the last two prefixes are identical. */
   function ambiguousDir(): string {
     const d = copyMigrations('ambiguous');
-    fs.writeFileSync(path.join(d, '0011_data_only.sql'), 'SELECT 1;');
+    fs.writeFileSync(path.join(d, `${String(TOTAL).padStart(4, '0')}_data_only.sql`), 'SELECT 1;');
     const jp = path.join(d, 'meta', '_journal.json');
     const j = JSON.parse(fs.readFileSync(jp, 'utf8'));
-    j.entries.push({ idx: 11, version: '7', when: j.entries[10].when + 1000, tag: '0011_data_only', breakpoints: true });
+    j.entries.push({ idx: TOTAL, version: '7', when: j.entries[TOTAL - 1].when + 1000, tag: EXTRA_TAG, breakpoints: true });
     fs.writeFileSync(jp, JSON.stringify(j));
-    const s10 = JSON.parse(fs.readFileSync(path.join(d, 'meta', '0010_snapshot.json'), 'utf8'));
+    const sLast = JSON.parse(fs.readFileSync(path.join(d, 'meta', snapshotFile(TOTAL - 1)), 'utf8'));
     fs.writeFileSync(
-      path.join(d, 'meta', '0011_snapshot.json'),
-      JSON.stringify({ ...s10, id: '11111111-2222-3333-4444-555555555555', prevId: s10.id }),
+      path.join(d, 'meta', snapshotFile(TOTAL)),
+      JSON.stringify({ ...sLast, id: '11111111-2222-3333-4444-555555555555', prevId: sLast.id }),
     );
     return d;
   }
@@ -246,18 +251,18 @@ describe('ambiguity needs an explicit --target', () => {
     const d = ambiguousDir();
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const none = await plan(pg, d);
       assert.equal(none.ok, false);
       assert.match(none.refusals.join(' '), /Ambiguous/);
 
-      const t10 = await plan(pg, d, { targetTag: '0010_class_name' });
-      assert.equal(t10.ok, true, t10.refusals.join('; '));
-      assert.equal(t10.chosenCount, 11);
-      assert.deepEqual(t10.remainingPending, ['0011_data_only']);
+      const tReal = await plan(pg, d, { targetTag: LAST_TAG });
+      assert.equal(tReal.ok, true, tReal.refusals.join('; '));
+      assert.equal(tReal.chosenCount, TOTAL);
+      assert.deepEqual(tReal.remainingPending, [EXTRA_TAG]);
 
-      const t11 = await plan(pg, d, { targetTag: '0011_data_only' });
-      assert.equal(t11.chosenCount, 12);
+      const tExtra = await plan(pg, d, { targetTag: EXTRA_TAG });
+      assert.equal(tExtra.chosenCount, TOTAL + 1);
 
       const bogus = await plan(pg, d, { targetTag: '0005_cynical_shiva' });
       assert.equal(bogus.ok, false);
@@ -270,7 +275,7 @@ describe('ambiguity needs an explicit --target', () => {
   it('a --target that contradicts an unambiguous match is refused', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const p = await plan(pg, realDir, { targetTag: '0003_quiet_deathstrike' });
       assert.equal(p.ok, false);
       assert.match(p.refusals.join(' '), /does not match the database schema/);
@@ -284,7 +289,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('refuses to write without explicit confirmation and changes nothing', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       for (const confirm of [false, undefined, 'true', 1] as any[]) {
         await assert.rejects(
           applyBaseline(pgliteExecutor(pg), realDir, { confirm }),
@@ -310,11 +315,11 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
       assert.deepEqual(rows.map((r) => [r.hash, Number(r.created_at)]), ms.slice(0, 6).map((m) => [m.hash, m.folderMillis]));
       assert.equal(fingerprintHash(await withPGliteReader(pg, introspectSchema)), appBefore, 'application schema untouched');
 
-      // End-to-end proof with the installed migrator: only 0006..0010 run, result equals the full schema.
+      // End-to-end proof with the installed migrator: only 0006..0011 run, result equals the full schema.
       await migrate(drizzle(pg), { migrationsFolder: realDir });
       const full = (await buildExpectedPrefixes(realDir)).at(-1)!;
       assert.equal(fingerprintHash(await withPGliteReader(pg, introspectSchema)), full.schemaHash);
-      assert.equal((await historyState(pg)).rows, 11);
+      assert.equal((await historyState(pg)).rows, TOTAL);
     } finally {
       await pg.close();
     }
@@ -323,7 +328,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('does not touch application data', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await pg.exec(`insert into roles (name) values ('SUPERVISOR')`);
       const before = (await pg.query('select * from roles')).rows;
       await applyBaseline(pgliteExecutor(pg), realDir, { confirm: true });
@@ -336,10 +341,10 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('a second run is refused (existing history) and adds nothing', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await applyBaseline(pgliteExecutor(pg), realDir, { confirm: true });
       await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), /already has Drizzle migration history/);
-      assert.equal((await historyState(pg)).rows, 11);
+      assert.equal((await historyState(pg)).rows, TOTAL);
     } finally {
       await pg.close();
     }
@@ -348,7 +353,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('concurrent attempts: exactly one succeeds, history is not duplicated', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const ex = pgliteExecutor(pg);
       const results = await Promise.allSettled([
         applyBaseline(ex, realDir, { confirm: true }),
@@ -356,7 +361,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
       ]);
       assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
       assert.equal(results.filter((r) => r.status === 'rejected').length, 1);
-      assert.equal((await historyState(pg)).rows, 11);
+      assert.equal((await historyState(pg)).rows, TOTAL);
     } finally {
       await pg.close();
     }
@@ -365,7 +370,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('an interruption mid-write leaves no tracking table and no partial history', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const base = pgliteExecutor(pg);
       let inserts = 0;
       const flaky: BaselineExecutor = {
@@ -385,7 +390,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
       assert.deepEqual(await historyState(pg), { schemas: 0, tbl: false, rows: 0 });
       // and the database can still be baselined cleanly afterwards
       await applyBaseline(base, realDir, { confirm: true });
-      assert.equal((await historyState(pg)).rows, 11);
+      assert.equal((await historyState(pg)).rows, TOTAL);
     } finally {
       await pg.close();
     }
@@ -394,7 +399,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('refuses a confirmed write on an incompatible schema and writes nothing', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await pg.exec('alter table classes drop column color');
       await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }), BaselineRefusedError);
       assert.deepEqual(await historyState(pg), { schemas: 0, tbl: false, rows: 0 });
@@ -416,7 +421,7 @@ describe('confirmed baseline (isolated in-memory databases only)', () => {
   it('refuses when an existing empty tracking table has an unexpected shape', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await pg.exec('create schema drizzle; create table drizzle.__drizzle_migrations (foo int)');
       await assert.rejects(applyBaseline(pgliteExecutor(pg), realDir, { confirm: true }));
       assert.equal((await pg.query<{ n: number }>('select count(*)::int as n from drizzle.__drizzle_migrations')).rows[0].n, 0);
@@ -469,7 +474,7 @@ describe('fingerprint: NOT NULL is version-independent, other constraints stay c
   it('never contains PostgreSQL-18-style NOT NULL constraint rows, but still compares nullability', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const fp = await withPGliteReader(pg, (r) => introspectSchema(r));
       const types = new Set(
         Object.entries(fp)
@@ -488,7 +493,7 @@ describe('fingerprint: NOT NULL is version-independent, other constraints stay c
   it('a database lacking the PG18 NOT NULL rows (as on PostgreSQL 16/17) fingerprints identically', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       const withN = await withPGliteReader(pg, (r) => introspectSchema(r));
       // Simulate PG16/17 by removing every row the version difference could add or remove.
       const without = Object.fromEntries(Object.entries(withN).filter(([k, v]) => !(k.startsWith('constraint|') && v.startsWith('n|'))));
@@ -509,7 +514,7 @@ describe('fingerprint: NOT NULL is version-independent, other constraints stay c
     it(`still refuses: ${name}`, async () => {
       const pg = new PGlite();
       try {
-        await rawReplay(pg, 11);
+        await rawReplay(pg, TOTAL);
         await pg.exec(ddl);
         const p = await plan(pg);
         assert.equal(p.ok, false, name);
@@ -526,14 +531,14 @@ describe('existing tracking table: structural validation before any insert', () 
   it('accepts a table identical to what the Drizzle migrator creates (and reuses it)', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await pg.exec(MIGRATOR_DDL);
       // dry run and write agree: allowed, and the dry run leaves the empty table empty
       const dry = await plan(pg);
       assert.equal(dry.ok, true, dry.refusals.join(';'));
       assert.equal((await historyState(pg)).rows, 0);
       await applyBaseline(pgliteExecutor(pg), realDir, { confirm: true });
-      assert.equal((await historyState(pg)).rows, 11);
+      assert.equal((await historyState(pg)).rows, TOTAL);
     } finally {
       await pg.close();
     }
@@ -553,7 +558,7 @@ describe('existing tracking table: structural validation before any insert', () 
     it(`refuses before inserting: ${name}`, async () => {
       const pg = new PGlite();
       try {
-        await rawReplay(pg, 11);
+        await rawReplay(pg, TOTAL);
         await pg.exec(`create schema drizzle; ${ddl}`);
         const before = JSON.stringify((await introspectSchema_(pg)));
         // the DRY RUN must refuse too (same rules), without writing anything
@@ -577,7 +582,7 @@ describe('existing tracking table: structural validation before any insert', () 
   it('refuses a table that already contains rows (existing history is never merged)', async () => {
     const pg = new PGlite();
     try {
-      await rawReplay(pg, 11);
+      await rawReplay(pg, TOTAL);
       await pg.exec(MIGRATOR_DDL);
       await pg.exec(`insert into drizzle.__drizzle_migrations (hash, created_at) values ('abc', 1)`);
       assert.equal((await plan(pg)).ok, false, 'dry run refuses existing history');

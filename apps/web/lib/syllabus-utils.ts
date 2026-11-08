@@ -10,10 +10,9 @@ import {
   CreateSyllabusSchema,
   SyllabusItemType,
   UpdateSyllabusItemSchema,
-  UpdateSyllabusSchema,
 } from '@edutech/shared';
-import type { CreateSyllabusDto, CreateSyllabusItemDto, UpdateSyllabusDto } from '@edutech/shared';
-import type { BookPartItem, BookSegmentItem, SyllabusDetail, SyllabusItem } from './api-client';
+import type { CreateSyllabusDto, CreateSyllabusItemDto } from '@edutech/shared';
+import type { SyllabusItem } from './api-client';
 
 export const SYLLABUS_ITEM_TYPE_LABEL: Record<SyllabusItemType, string> = {
   FILM: 'Film',
@@ -40,13 +39,6 @@ export const SYLLABUS_ITEM_DELETE_POLICY = {
 
 export const NO_CHANGES_MESSAGE = 'No changes to save.';
 
-/** Shown (not enforced) when a second syllabus is created for a scope that already has one. */
-export const DUPLICATE_SCOPE_NOTICE =
-  'Another syllabus already exists for this scope. The API allows this, but it can be ambiguous which one is used later.';
-
-/** Value of the scope selector that means "the whole book" (no segment). */
-export const WHOLE_BOOK_VALUE = '';
-
 export function sortSyllabusItems<T extends { sequenceOrder: number }>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => a.sequenceOrder - b.sequenceOrder);
 }
@@ -56,51 +48,7 @@ export function nextSequenceOrder(items: readonly { sequenceOrder: number }[]): 
   return items.reduce((max, item) => Math.max(max, item.sequenceOrder), 0) + 1;
 }
 
-// ---- scope (book / segment) -------------------------------------------------------------------------------
-
-export interface SegmentOption {
-  id: string;
-  label: string;
-}
-
-/** Segment choices for a book, in curriculum order: "Part 1: Name > #2 Unit". */
-export function buildSegmentOptions(
-  parts: readonly BookPartItem[],
-  segmentsByPart: Readonly<Record<string, readonly BookSegmentItem[]>>,
-): SegmentOption[] {
-  const options: SegmentOption[] = [];
-  for (const part of sortSyllabusItems(parts)) {
-    for (const segment of sortSyllabusItems(segmentsByPart[part.id] ?? [])) {
-      options.push({
-        id: segment.id,
-        label: `Part ${part.sequenceOrder}: ${part.name} > #${segment.sequenceOrder} ${segment.name}`,
-      });
-    }
-  }
-  return options;
-}
-
-export function syllabusScopeLabel(syllabus: Pick<SyllabusDetail, 'bookSegmentId' | 'bookSegment'>): string {
-  if (!syllabus.bookSegmentId) return 'Whole book';
-  return `Segment: ${syllabus.bookSegment?.name ?? 'Unknown segment'}`;
-}
-
-/** Whole-book syllabi first, then by segment name. */
-export function sortSyllabi(syllabi: readonly SyllabusDetail[]): SyllabusDetail[] {
-  return [...syllabi].sort((a, b) => {
-    if (!a.bookSegmentId !== !b.bookSegmentId) return a.bookSegmentId ? 1 : -1;
-    return (a.bookSegment?.name ?? '').localeCompare(b.bookSegment?.name ?? '');
-  });
-}
-
-/** True when another syllabus (not `excludeId`) already covers the scope. `segmentId` null means whole book. */
-export function hasSameScope(
-  syllabi: readonly Pick<SyllabusDetail, 'id' | 'bookSegmentId'>[],
-  segmentId: string | null,
-  excludeId?: string,
-): boolean {
-  return syllabi.some((s) => s.id !== excludeId && (s.bookSegmentId ?? null) === segmentId);
-}
+// ---- syllabus (one canonical syllabus per book) -----------------------------------------------------------
 
 function issuesToMessage(issues: readonly { message: string }[]): string {
   return issues.map((i) => i.message).join(', ');
@@ -108,20 +56,18 @@ function issuesToMessage(issues: readonly { message: string }[]): string {
 
 export type ScopeResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Validate a create/edit of a syllabus' scope with the shared contracts. The book never changes here. */
-export function buildCreateSyllabusPayload(bookId: string, segmentId: string): ScopeResult<CreateSyllabusDto> {
-  const parsed = CreateSyllabusSchema.safeParse({ bookId, bookSegmentId: segmentId || null });
+/**
+ * Validate the create request for a book's canonical syllabus with the shared contract. The Book is the only
+ * scope: no part or segment is ever sent.
+ */
+export function buildCreateSyllabusPayload(bookId: string): ScopeResult<CreateSyllabusDto> {
+  const parsed = CreateSyllabusSchema.safeParse({ bookId });
   return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: issuesToMessage(parsed.error.issues) };
 }
 
-export function buildUpdateSyllabusPayload(
-  current: Pick<SyllabusDetail, 'bookSegmentId'>,
-  segmentId: string,
-): ScopeResult<UpdateSyllabusDto> {
-  const next = segmentId || null;
-  if ((current.bookSegmentId ?? null) === next) return { ok: false, error: NO_CHANGES_MESSAGE };
-  const parsed = UpdateSyllabusSchema.safeParse({ bookSegmentId: next });
-  return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: issuesToMessage(parsed.error.issues) };
+/** The canonical syllabus of a book: the first (and, by the API's unique rule, only) one returned for it. */
+export function pickBookSyllabus<T extends { bookId: string }>(syllabi: readonly T[], bookId: string): T | null {
+  return syllabi.find((s) => s.bookId === bookId) ?? null;
 }
 
 // ---- items ------------------------------------------------------------------------------------------------

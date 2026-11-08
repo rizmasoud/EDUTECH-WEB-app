@@ -4,13 +4,12 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
-import { eq, and, type SQL } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../../infrastructure/database/drizzle.provider';
 import {
   books,
-  bookParts,
-  bookSegments,
   syllabi,
   syllabusItems,
 } from '../../../infrastructure/database/schema/academics.schema';
@@ -41,89 +40,34 @@ export class SyllabusService {
   ) {}
 
   /**
-   * Helper to verify book and bookSegment validity
+   * The Book is the only scope of a canonical Syllabus. Parts and Segments are never consulted here.
    */
-  private async validateBookAndSegment(bookId?: string, bookSegmentId?: string | null) {
-    if (bookId) {
-      const [book] = await this.db
-        .select()
-        .from(books)
-        .where(eq(books.id, bookId))
-        .limit(1);
+  private async validateBook(bookId: string) {
+    const [book] = await this.db.select().from(books).where(eq(books.id, bookId)).limit(1);
 
-      if (!book) {
-        throw new NotFoundException({
-          code: 'RESOURCE_NOT_FOUND',
-          message: `Book with id ${bookId} not found`,
-        });
-      }
-    }
-
-    if (bookSegmentId) {
-      const [segment] = await this.db
-        .select({
-          id: bookSegments.id,
-          bookPartId: bookSegments.bookPartId,
-          bookId: bookParts.bookId,
-        })
-        .from(bookSegments)
-        .innerJoin(bookParts, eq(bookSegments.bookPartId, bookParts.id))
-        .where(eq(bookSegments.id, bookSegmentId))
-        .limit(1);
-
-      if (!segment) {
-        throw new NotFoundException({
-          code: 'RESOURCE_NOT_FOUND',
-          message: `Book segment with id ${bookSegmentId} not found`,
-        });
-      }
-
-      if (bookId && segment.bookId !== bookId) {
-        throw new BadRequestException({
-          code: 'INVALID_INPUT',
-          message: `Book segment ${bookSegmentId} does not belong to book ${bookId}`,
-        });
-      }
+    if (!book) {
+      throw new NotFoundException({
+        code: 'RESOURCE_NOT_FOUND',
+        message: `Book with id ${bookId} not found`,
+      });
     }
   }
 
-  /**
-   * GET /api/v1/syllabi
-   */
-  async findAll(filter?: FindSyllabiFilterDto): Promise<SyllabusDetailDto[]> {
-    const parseResult = FindSyllabiFilterSchema.safeParse(filter || {});
-    const queryFilter = parseResult.success ? parseResult.data : {};
+  private duplicateBookError(bookId: string) {
+    return new ConflictException({
+      code: 'CONFLICT',
+      message: `Book ${bookId} already has a syllabus. Each book has exactly one syllabus.`,
+    });
+  }
 
-    const conditions: SQL[] = [];
-    if (queryFilter.bookId) {
-      conditions.push(eq(syllabi.bookId, queryFilter.bookId));
-    }
-    if (queryFilter.bookSegmentId) {
-      conditions.push(eq(syllabi.bookSegmentId, queryFilter.bookSegmentId));
-    }
+  private isUniqueViolation(err: any): boolean {
+    return err?.code === '23505' || err?.cause?.code === '23505';
+  }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const list = await this.db
-      .select({
-        id: syllabi.id,
-        bookId: syllabi.bookId,
-        bookSegmentId: syllabi.bookSegmentId,
-        createdAt: syllabi.createdAt,
-        updatedAt: syllabi.updatedAt,
-        bookName: books.name,
-        bookLevel: books.level,
-        bookSegmentName: bookSegments.name,
-      })
-      .from(syllabi)
-      .innerJoin(books, eq(syllabi.bookId, books.id))
-      .leftJoin(bookSegments, eq(syllabi.bookSegmentId, bookSegments.id))
-      .where(whereClause);
-
-    return list.map((s: any) => ({
+  private toDetail(s: any): Omit<SyllabusDetailDto, 'items'> {
+    return {
       id: s.id,
       bookId: s.bookId,
-      bookSegmentId: s.bookSegmentId,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
       book: {
@@ -131,13 +75,33 @@ export class SyllabusService {
         name: s.bookName,
         level: s.bookLevel,
       },
-      bookSegment: s.bookSegmentId
-        ? {
-            id: s.bookSegmentId,
-            name: s.bookSegmentName,
-          }
-        : null,
-    }));
+    };
+  }
+
+  /**
+   * GET /api/v1/syllabi
+   * Filters by book only; any segment/part filter is ignored (stripped by the schema).
+   */
+  async findAll(filter?: FindSyllabiFilterDto): Promise<SyllabusDetailDto[]> {
+    const parseResult = FindSyllabiFilterSchema.safeParse(filter || {});
+    const queryFilter = parseResult.success ? parseResult.data : {};
+
+    const whereClause = queryFilter.bookId ? eq(syllabi.bookId, queryFilter.bookId) : undefined;
+
+    const list = await this.db
+      .select({
+        id: syllabi.id,
+        bookId: syllabi.bookId,
+        createdAt: syllabi.createdAt,
+        updatedAt: syllabi.updatedAt,
+        bookName: books.name,
+        bookLevel: books.level,
+      })
+      .from(syllabi)
+      .innerJoin(books, eq(syllabi.bookId, books.id))
+      .where(whereClause);
+
+    return list.map((s: any) => this.toDetail(s));
   }
 
   /**
@@ -148,16 +112,13 @@ export class SyllabusService {
       .select({
         id: syllabi.id,
         bookId: syllabi.bookId,
-        bookSegmentId: syllabi.bookSegmentId,
         createdAt: syllabi.createdAt,
         updatedAt: syllabi.updatedAt,
         bookName: books.name,
         bookLevel: books.level,
-        bookSegmentName: bookSegments.name,
       })
       .from(syllabi)
       .innerJoin(books, eq(syllabi.bookId, books.id))
-      .leftJoin(bookSegments, eq(syllabi.bookSegmentId, bookSegments.id))
       .where(eq(syllabi.id, id))
       .limit(1);
 
@@ -175,22 +136,7 @@ export class SyllabusService {
       .orderBy(syllabusItems.sequenceOrder);
 
     return {
-      id: s.id,
-      bookId: s.bookId,
-      bookSegmentId: s.bookSegmentId,
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-      book: {
-        id: s.bookId,
-        name: s.bookName,
-        level: s.bookLevel,
-      },
-      bookSegment: s.bookSegmentId
-        ? {
-            id: s.bookSegmentId,
-            name: s.bookSegmentName,
-          }
-        : null,
+      ...this.toDetail(s),
       items: items.map((i: any) => ({
         id: i.id,
         syllabusId: i.syllabusId,
@@ -207,6 +153,7 @@ export class SyllabusService {
 
   /**
    * POST /api/v1/syllabi (SUPERVISOR only)
+   * Creates the Book's one canonical Syllabus; 409 if it already has one.
    */
   async create(dto: CreateSyllabusDto, user: AuthUser): Promise<SyllabusDetailDto> {
     const isSupervisor = user.roles.includes('SUPERVISOR');
@@ -226,36 +173,45 @@ export class SyllabusService {
     }
 
     const data = parseResult.data;
-    await this.validateBookAndSegment(data.bookId, data.bookSegmentId);
+    await this.validateBook(data.bookId);
 
-    const createdId = await this.db.transaction(async (tx: any) => {
-      const [created] = await tx
-        .insert(syllabi)
-        .values({
-          bookId: data.bookId,
-          bookSegmentId: data.bookSegmentId || null,
-        })
-        .returning();
+    const [existing] = await this.db
+      .select({ id: syllabi.id })
+      .from(syllabi)
+      .where(eq(syllabi.bookId, data.bookId))
+      .limit(1);
+    if (existing) throw this.duplicateBookError(data.bookId);
 
-      await tx.insert(auditLogs).values({
-        actorAccountId: user.id,
-        action: 'CREATE_SYLLABUS',
-        entityType: 'SYLLABUS',
-        entityId: created.id,
-        metadata: {
-          bookId: data.bookId,
-          bookSegmentId: data.bookSegmentId || null,
-        },
+    let createdId: string;
+    try {
+      createdId = await this.db.transaction(async (tx: any) => {
+        // book_segment_id is deliberately not written: new Syllabi are Book-scoped only.
+        const [created] = await tx.insert(syllabi).values({ bookId: data.bookId }).returning();
+
+        await tx.insert(auditLogs).values({
+          actorAccountId: user.id,
+          action: 'CREATE_SYLLABUS',
+          entityType: 'SYLLABUS',
+          entityId: created.id,
+          metadata: { bookId: data.bookId },
+        });
+
+        return created.id;
       });
-
-      return created.id;
-    });
+    } catch (err) {
+      // A concurrent request created the Syllabus between the check above and the insert.
+      if (this.isUniqueViolation(err)) throw this.duplicateBookError(data.bookId);
+      throw err;
+    }
 
     return this.findOne(createdId);
   }
 
   /**
    * PATCH /api/v1/syllabi/:id (SUPERVISOR only)
+   * A canonical Syllabus cannot move to another Book (that would give one of the Books two or none), so the
+   * only accepted bookId is the current one; the Syllabus is otherwise left as is apart from `updatedAt`.
+   * Segment/part fields are ignored and the stored legacy `book_segment_id` is never touched.
    */
   async update(
     id: string,
@@ -281,31 +237,22 @@ export class SyllabusService {
     const existing = await this.findOne(id);
     const data = parseResult.data;
 
-    const targetBookId = data.bookId || existing.bookId;
-    const targetSegmentId =
-      data.bookSegmentId !== undefined ? data.bookSegmentId : existing.bookSegmentId;
-
-    await this.validateBookAndSegment(targetBookId, targetSegmentId);
+    if (data.bookId && data.bookId !== existing.bookId) {
+      throw new BadRequestException({
+        code: 'INVALID_INPUT',
+        message: 'A syllabus belongs to one book and cannot be moved to another book',
+      });
+    }
 
     await this.db.transaction(async (tx: any) => {
-      await tx
-        .update(syllabi)
-        .set({
-          bookId: targetBookId,
-          bookSegmentId: targetSegmentId || null,
-          updatedAt: new Date(),
-        })
-        .where(eq(syllabi.id, id));
+      await tx.update(syllabi).set({ updatedAt: new Date() }).where(eq(syllabi.id, id));
 
       await tx.insert(auditLogs).values({
         actorAccountId: user.id,
         action: 'UPDATE_SYLLABUS',
         entityType: 'SYLLABUS',
         entityId: id,
-        metadata: {
-          bookId: targetBookId,
-          bookSegmentId: targetSegmentId || null,
-        },
+        metadata: { bookId: existing.bookId },
       });
     });
 

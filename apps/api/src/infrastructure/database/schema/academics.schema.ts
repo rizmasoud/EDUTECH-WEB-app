@@ -17,6 +17,7 @@ import {
   check,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { academicTermStatusEnum, syllabusItemTypeEnum } from './enums';
@@ -113,21 +114,30 @@ export const academicTerms = pgTable(
   ],
 );
 
-export const syllabi = pgTable('syllabi', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  bookId: uuid('book_id')
-    .notNull()
-    .references(() => books.id, { onDelete: 'restrict' }),
-  bookSegmentId: uuid('book_segment_id').references(() => bookSegments.id, {
-    onDelete: 'restrict',
-  }),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .defaultNow()
-    .notNull(),
-});
+/**
+ * One canonical Syllabus per Book: `book_id` is unique. The Book is the only scope.
+ * `book_segment_id` is legacy metadata kept untouched: it is never read for resolving, creating, editing or
+ * displaying a Syllabus, and Parts/Segments are unaffected.
+ */
+export const syllabi = pgTable(
+  'syllabi',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    bookId: uuid('book_id')
+      .notNull()
+      .references(() => books.id, { onDelete: 'restrict' }),
+    bookSegmentId: uuid('book_segment_id').references(() => bookSegments.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex('syllabi_book_unique').on(table.bookId)],
+);
 
 export const syllabusItems = pgTable('syllabus_items', {
   id: uuid('id').defaultRandom().primaryKey(),
