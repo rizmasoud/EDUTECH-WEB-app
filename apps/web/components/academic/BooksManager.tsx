@@ -236,7 +236,7 @@ export function BooksManager({ isSupervisor = true }: BooksManagerProps) {
             <h2 className="text-lg font-bold text-white">Books & Curriculum Hierarchy</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Manage language textbooks, difficulty levels, course parts, and syllabus segment units.
+            Manage language textbooks, difficulty levels, course parts, and one syllabus per book.
           </p>
         </div>
 

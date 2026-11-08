@@ -1,33 +1,15 @@
 import React, { useId, useState } from 'react';
-import {
-  AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronRight,
-  ClipboardList,
-  Edit2,
-  Info,
-  Plus,
-  RefreshCw,
-  X,
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, ClipboardList, Edit2, Info, Plus, RefreshCw, X } from 'lucide-react';
 import type { SyllabusDetail, SyllabusItem } from '../../lib/api-client';
 import { InlineError } from '../ui/InlineError';
 import {
-  DUPLICATE_SCOPE_NOTICE,
   SYLLABUS_ITEM_DELETE_POLICY,
   SYLLABUS_ITEM_TYPES,
   SYLLABUS_ITEM_TYPE_LABEL,
-  WHOLE_BOOK_VALUE,
   emptyItemForm,
-  endSentence,
-  hasSameScope,
   itemToForm,
   sortSyllabusItems,
-  syllabusScopeLabel,
   type ItemFormValues,
-  type SegmentOption,
 } from '../../lib/syllabus-utils';
 
 /**
@@ -37,13 +19,6 @@ import {
  *
  * Supervisor-only: renders nothing for any other role.
  */
-
-export interface ScopeDialogState {
-  mode: 'create' | 'edit';
-  syllabus?: SyllabusDetail;
-  error: string | null;
-  saving: boolean;
-}
 
 export interface ItemDialogState {
   syllabusId: string;
@@ -57,26 +32,19 @@ export interface SyllabusPanelViewProps {
   bookName: string;
   loading: boolean;
   loadError: string | null;
-  /** Failure of a reorder; shown above the list, which stays visible. */
+  /** Failure of a create or reorder; shown above the content, which stays visible. */
   actionError: string | null;
-  syllabi: SyllabusDetail[];
-  segmentOptions: SegmentOption[];
-  /** Segment choices failed to load. Independent of `loadError`: the syllabus list and its actions stay usable. */
-  segmentError: string | null;
-  expandedId: string | null;
-  itemsBySyllabus: Record<string, SyllabusItem[] | undefined>;
-  detailLoadingId: string | null;
-  detailError: string | null;
+  /** The book's one canonical syllabus, or null when it has none yet. */
+  syllabus: SyllabusDetail | null;
+  creating: boolean;
+  /** Items of `syllabus`; undefined until loaded. */
+  items: SyllabusItem[] | undefined;
+  itemsLoading: boolean;
+  itemsError: string | null;
   reordering: boolean;
-  scopeDialog: ScopeDialogState | null;
   itemDialog: ItemDialogState | null;
   onRetry: () => void;
-  onRetrySegments: () => void;
-  onToggle: (syllabusId: string) => void;
-  onNewSyllabus: () => void;
-  onEditSyllabus: (syllabus: SyllabusDetail) => void;
-  onSubmitScope: (segmentId: string) => void;
-  onCloseScope: () => void;
+  onCreate: () => void;
   onAddItem: (syllabusId: string) => void;
   onEditItem: (syllabusId: string, item: SyllabusItem) => void;
   onSubmitItem: (values: ItemFormValues) => void;
@@ -95,15 +63,12 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
     loading,
     loadError,
     actionError,
-    syllabi,
-    segmentOptions,
-    segmentError,
-    expandedId,
-    itemsBySyllabus,
-    detailLoadingId,
-    detailError,
+    syllabus,
+    creating,
+    items,
+    itemsLoading,
+    itemsError,
     reordering,
-    scopeDialog,
     itemDialog,
   } = props;
 
@@ -112,56 +77,41 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
   return (
     <section aria-label="Syllabus" className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/80 p-3 text-xs">
       <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
-        <div>
+        <div className="min-w-0">
           <span className="flex items-center gap-1 font-semibold text-slate-300">
             <ClipboardList className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-            Syllabus
-          </span>
-          <p className="mt-0.5 text-[10px] text-slate-500">
-            Learning items for {bookName}, for the whole book or for one segment.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={props.onNewSyllabus}
-          disabled={loading || Boolean(loadError)}
-          className="flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-indigo-300 transition hover:bg-slate-700 disabled:opacity-50"
-        >
-          <Plus className="h-3 w-3" aria-hidden="true" />
-          <span>New Syllabus</span>
-        </button>
-      </div>
-
-      {actionError ? (
-        <InlineError message={actionError} onDismiss={props.onDismissActionError} />
-      ) : null}
-
-      {segmentError && !loading && !loadError ? (
-        <div
-          role="alert"
-          className="flex items-start justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300"
-        >
-          <span className="flex items-start gap-1">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>
-              Segment choices could not be loaded. {endSentence(segmentError)} Syllabi and items can still be managed;
-              new syllabi are limited to the whole book until this loads.
+            <span>Syllabus</span>
+            <span dir="auto" className="truncate text-slate-400">
+              &mdash; {bookName}
             </span>
           </span>
+          <p className="mt-0.5 text-[10px] text-slate-500">
+            The expected teaching activities for the whole book. Each book has exactly one syllabus.
+          </p>
+        </div>
+        {!loading && !loadError && !syllabus ? (
           <button
             type="button"
-            onClick={props.onRetrySegments}
-            className="shrink-0 rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-200 hover:bg-slate-700"
+            onClick={props.onCreate}
+            disabled={creating}
+            className="flex items-center gap-1 rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-indigo-300 transition hover:bg-slate-700 disabled:opacity-50"
           >
-            Reload segments
+            {creating ? (
+              <RefreshCw className="h-3 w-3 animate-spin" aria-hidden="true" />
+            ) : (
+              <Plus className="h-3 w-3" aria-hidden="true" />
+            )}
+            <span>Create Syllabus</span>
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
+
+      {actionError ? <InlineError message={actionError} onDismiss={props.onDismissActionError} /> : null}
 
       {loading ? (
         <div role="status" className="flex items-center justify-center gap-2 p-4 text-slate-400">
           <RefreshCw className="h-4 w-4 animate-spin text-indigo-400" aria-hidden="true" />
-          <span>Loading syllabi...</span>
+          <span>Loading syllabus...</span>
         </div>
       ) : loadError ? (
         <div className="space-y-2">
@@ -174,175 +124,123 @@ export function SyllabusPanelView(props: SyllabusPanelViewProps) {
             Try again
           </button>
         </div>
-      ) : syllabi.length === 0 ? (
+      ) : !syllabus ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-center text-slate-500">
           <p className="font-semibold text-slate-400">No syllabus yet</p>
-          <p className="mt-1 text-[11px]">
-            Create one for the whole book or for a single segment, then add its learning items.
-          </p>
+          <p className="mt-1 text-[11px]">Create the syllabus for this book, then add its learning items.</p>
         </div>
       ) : (
-        <ul className="space-y-2">
-          {syllabi.map((syllabus) => {
-            const expanded = expandedId === syllabus.id;
-            const items = itemsBySyllabus[syllabus.id];
-            return (
-              <li key={syllabus.id} className="rounded-lg border border-slate-800 bg-slate-950/60">
-                <div className="flex items-center justify-between gap-2 p-2">
-                  <button
-                    type="button"
-                    onClick={() => props.onToggle(syllabus.id)}
-                    aria-expanded={expanded}
-                    className="flex min-w-0 items-center gap-2 text-left text-slate-200"
-                  >
-                    {expanded ? (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    )}
-                    <span dir="auto" className="truncate font-semibold">
-                      {syllabusScopeLabel(syllabus)}
-                    </span>
-                    {items ? (
-                      <span className="shrink-0 text-[10px] text-slate-500">
-                        {items.length} {items.length === 1 ? 'item' : 'items'}
+        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold text-slate-400">
+              Learning items
+              {items ? (
+                <span className="ml-1.5 font-normal text-slate-500">
+                  {items.length} {items.length === 1 ? 'item' : 'items'}
+                </span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={() => props.onAddItem(syllabus.id)}
+              disabled={!items}
+              className="flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-indigo-300 hover:bg-slate-700 disabled:opacity-50"
+            >
+              <Plus className="h-2.5 w-2.5" aria-hidden="true" />
+              <span>Add Item</span>
+            </button>
+          </div>
+
+          {itemsError ? (
+            <div className="space-y-2">
+              <InlineError message={itemsError} />
+            </div>
+          ) : null}
+
+          {!items && itemsLoading ? (
+            <div role="status" className="flex items-center gap-2 p-2 text-slate-400">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400" aria-hidden="true" />
+              <span>Loading items...</span>
+            </div>
+          ) : items && items.length === 0 ? (
+            <p className="rounded border border-slate-800 bg-slate-900/40 p-3 text-center text-slate-500">
+              This syllabus has no items yet.
+            </p>
+          ) : items ? (
+            <ol className="space-y-1.5">
+              {sortSyllabusItems(items).map((item, index, sorted) => (
+                <li
+                  key={item.id}
+                  className="flex items-start justify-between gap-2 rounded border border-slate-800 bg-slate-950 p-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-slate-500">#{item.sequenceOrder}</span>
+                      <span dir="auto" className="break-words font-medium text-slate-200">
+                        {item.title}
                       </span>
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => props.onEditSyllabus(syllabus)}
-                    title="Change scope"
-                    aria-label={`Change scope of ${syllabusScopeLabel(syllabus)}`}
-                    className="shrink-0 rounded bg-slate-800 p-1.5 text-slate-300 transition hover:bg-slate-700"
-                  >
-                    <Edit2 className="h-3 w-3" aria-hidden="true" />
-                  </button>
-                </div>
-
-                {expanded ? (
-                  <div className="space-y-2 border-t border-slate-800/60 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-semibold text-slate-400">Learning items</span>
-                      <button
-                        type="button"
-                        onClick={() => props.onAddItem(syllabus.id)}
-                        disabled={!items}
-                        className="flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-indigo-300 hover:bg-slate-700 disabled:opacity-50"
-                      >
-                        <Plus className="h-2.5 w-2.5" aria-hidden="true" />
-                        <span>Add Item</span>
-                      </button>
+                      <span className="rounded border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-400">
+                        {SYLLABUS_ITEM_TYPE_LABEL[item.type] ?? item.type}
+                      </span>
+                      <span className="text-[10px] text-slate-500">{item.required ? 'Required' : 'Optional'}</span>
                     </div>
-
-                    {detailError ? <InlineError message={detailError} /> : null}
-
-                    {!items && detailLoadingId === syllabus.id ? (
-                      <div role="status" className="flex items-center gap-2 p-2 text-slate-400">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-400" aria-hidden="true" />
-                        <span>Loading items...</span>
-                      </div>
-                    ) : items && items.length === 0 ? (
-                      <p className="rounded border border-slate-800 bg-slate-900/40 p-3 text-center text-slate-500">
-                        This syllabus has no items yet.
-                      </p>
-                    ) : items ? (
-                      <ol className="space-y-1.5">
-                        {sortSyllabusItems(items).map((item, index, sorted) => (
-                          <li
-                            key={item.id}
-                            className="flex items-start justify-between gap-2 rounded border border-slate-800 bg-slate-950 p-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-mono text-[10px] text-slate-500">#{item.sequenceOrder}</span>
-                                <span dir="auto" className="break-words font-medium text-slate-200">
-                                  {item.title}
-                                </span>
-                                <span className="rounded border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-400">
-                                  {SYLLABUS_ITEM_TYPE_LABEL[item.type] ?? item.type}
-                                </span>
-                                <span className="text-[10px] text-slate-500">
-                                  {item.required ? 'Required' : 'Optional'}
-                                </span>
-                              </div>
-                              {item.description ? (
-                                <p dir="auto" className="mt-0.5 break-words text-[11px] text-slate-400">
-                                  {item.description}
-                                </p>
-                              ) : null}
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => props.onMoveItem(syllabus.id, item.id, 'up')}
-                                disabled={reordering || index === 0}
-                                aria-label={`Move ${item.title} up`}
-                                title="Move up"
-                                className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
-                              >
-                                <ArrowUp className="h-3 w-3" aria-hidden="true" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => props.onMoveItem(syllabus.id, item.id, 'down')}
-                                disabled={reordering || index === sorted.length - 1}
-                                aria-label={`Move ${item.title} down`}
-                                title="Move down"
-                                className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
-                              >
-                                <ArrowDown className="h-3 w-3" aria-hidden="true" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => props.onEditItem(syllabus.id, item)}
-                                disabled={reordering}
-                                aria-label={`Edit ${item.title}`}
-                                title="Edit item"
-                                className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
-                              >
-                                <Edit2 className="h-3 w-3" aria-hidden="true" />
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : null}
-
-                    {!SYLLABUS_ITEM_DELETE_POLICY.available ? (
-                      <p role="note" className="flex items-start gap-1 text-[10px] text-slate-500">
-                        <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-                        <span>{SYLLABUS_ITEM_DELETE_POLICY.reason}</span>
+                    {item.description ? (
+                      <p dir="auto" className="mt-0.5 break-words text-[11px] text-slate-400">
+                        {item.description}
                       </p>
                     ) : null}
                   </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => props.onMoveItem(syllabus.id, item.id, 'up')}
+                      disabled={reordering || index === 0}
+                      aria-label={`Move ${item.title} up`}
+                      title="Move up"
+                      className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+                    >
+                      <ArrowUp className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.onMoveItem(syllabus.id, item.id, 'down')}
+                      disabled={reordering || index === sorted.length - 1}
+                      aria-label={`Move ${item.title} down`}
+                      title="Move down"
+                      className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+                    >
+                      <ArrowDown className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.onEditItem(syllabus.id, item)}
+                      disabled={reordering}
+                      aria-label={`Edit ${item.title}`}
+                      title="Edit item"
+                      className="rounded bg-slate-800 p-1 text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+                    >
+                      <Edit2 className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : null}
 
-      {scopeDialog ? (
-        <SyllabusScopeDialog
-          key={scopeDialog.syllabus?.id ?? 'new'}
-          state={scopeDialog}
-          bookName={bookName}
-          segmentOptions={segmentOptions}
-          segmentError={segmentError}
-          syllabi={syllabi}
-          onSubmit={props.onSubmitScope}
-          onClose={props.onCloseScope}
-        />
-      ) : null}
+          {!SYLLABUS_ITEM_DELETE_POLICY.available ? (
+            <p role="note" className="flex items-start gap-1 text-[10px] text-slate-500">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+              <span>{SYLLABUS_ITEM_DELETE_POLICY.reason}</span>
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {itemDialog ? (
         <SyllabusItemDialog
           key={itemDialog.item?.id ?? `new-${itemDialog.syllabusId}`}
           state={itemDialog}
-          initialValues={
-            itemDialog.item ? itemToForm(itemDialog.item) : emptyItemForm(itemsBySyllabus[itemDialog.syllabusId] ?? [])
-          }
+          initialValues={itemDialog.item ? itemToForm(itemDialog.item) : emptyItemForm(items ?? [])}
           onSubmit={props.onSubmitItem}
           onClose={props.onCloseItem}
         />
@@ -429,89 +327,6 @@ function DialogActions({
         <span>{submitLabel}</span>
       </button>
     </div>
-  );
-}
-
-function SyllabusScopeDialog({
-  state,
-  bookName,
-  segmentOptions,
-  segmentError,
-  syllabi,
-  onSubmit,
-  onClose,
-}: {
-  state: ScopeDialogState;
-  bookName: string;
-  segmentOptions: SegmentOption[];
-  segmentError: string | null;
-  syllabi: SyllabusDetail[];
-  onSubmit: (segmentId: string) => void;
-  onClose: () => void;
-}) {
-  const id = useId();
-  const editing = state.mode === 'edit';
-  const [segmentId, setSegmentId] = useState(state.syllabus?.bookSegmentId ?? WHOLE_BOOK_VALUE);
-
-  // Keep the current segment selectable even if its options failed to load.
-  const options =
-    state.syllabus?.bookSegmentId && !segmentOptions.some((o) => o.id === state.syllabus?.bookSegmentId)
-      ? [
-          ...segmentOptions,
-          { id: state.syllabus.bookSegmentId, label: state.syllabus.bookSegment?.name ?? 'Current segment' },
-        ]
-      : segmentOptions;
-  const duplicate = hasSameScope(syllabi, segmentId || null, state.syllabus?.id);
-
-  return (
-    <DialogShell
-      titleId={`${id}-title`}
-      title={editing ? 'Change Syllabus Scope' : 'New Syllabus'}
-      subtitle={bookName}
-      onClose={onClose}
-      closeDisabled={state.saving}
-    >
-      <form
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSubmit(segmentId);
-        }}
-        className="space-y-4 text-xs"
-      >
-        <InlineError message={state.error} />
-        <div>
-          <label htmlFor={`${id}-scope`} className="mb-1 block font-semibold text-slate-300">
-            Scope *
-          </label>
-          <select
-            id={`${id}-scope`}
-            value={segmentId}
-            onChange={(e) => setSegmentId(e.target.value)}
-            className={FIELD}
-          >
-            <option value={WHOLE_BOOK_VALUE}>Whole book</option>
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {segmentError ? (
-          <p role="note" className="text-[11px] text-amber-300">
-            Segment choices could not be loaded. You can still choose Whole book.
-          </p>
-        ) : null}
-        {duplicate ? (
-          <p role="note" className="flex items-start gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-amber-300">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span>{DUPLICATE_SCOPE_NOTICE}</span>
-          </p>
-        ) : null}
-        <DialogActions onClose={onClose} saving={state.saving} submitLabel={editing ? 'Save Changes' : 'Create Syllabus'} />
-      </form>
-    </DialogShell>
   );
 }
 

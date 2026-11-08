@@ -5,33 +5,28 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SyllabusItemType } from '@edutech/shared';
-import type { BookPartItem, BookSegmentItem, SyllabusDetail, SyllabusItem } from '../../apps/web/lib/api-client';
+import type { SyllabusDetail, SyllabusItem } from '../../apps/web/lib/api-client';
 import {
-  DUPLICATE_SCOPE_NOTICE,
   NO_CHANGES_MESSAGE,
   SYLLABUS_ITEM_DELETE_POLICY,
   SYLLABUS_ITEM_TYPES,
   SYLLABUS_ITEM_TYPE_LABEL,
   buildCreateSyllabusPayload,
-  buildSegmentOptions,
-  buildUpdateSyllabusPayload,
   describeSyllabusError,
   emptyItemForm,
   endSentence,
-  hasSameScope,
   itemToForm,
   nextSequenceOrder,
+  pickBookSyllabus,
   planItemMove,
   shouldRefreshItemsAfterReorder,
-  sortSyllabi,
   sortSyllabusItems,
-  syllabusScopeLabel,
   validateItemForm,
   type ItemFormValues,
 } from '../../apps/web/lib/syllabus-utils';
 
 const BOOK_ID = '11111111-1111-4111-8111-111111111111';
-const SEGMENT_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_BOOK_ID = '33333333-3333-4333-8333-333333333333';
 
 function item(id: string, sequenceOrder: number, over: Partial<SyllabusItem> = {}): SyllabusItem {
   return {
@@ -48,14 +43,12 @@ function item(id: string, sequenceOrder: number, over: Partial<SyllabusItem> = {
   };
 }
 
-function syllabus(id: string, segmentId: string | null, segmentName?: string): SyllabusDetail {
+function syllabus(id: string, bookId = BOOK_ID): SyllabusDetail {
   return {
     id,
-    bookId: BOOK_ID,
-    bookSegmentId: segmentId,
+    bookId,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
-    bookSegment: segmentId ? { id: segmentId, name: segmentName ?? 'Segment' } : null,
   };
 }
 
@@ -223,79 +216,27 @@ describe('moving items up and down', () => {
   });
 });
 
-describe('syllabus scope (book / segment)', () => {
-  it('labels whole-book and segment syllabi', () => {
-    assert.equal(syllabusScopeLabel(syllabus('s1', null)), 'Whole book');
-    assert.equal(syllabusScopeLabel(syllabus('s2', SEGMENT_ID, 'Unit 1')), 'Segment: Unit 1');
-    assert.equal(
-      syllabusScopeLabel({ bookSegmentId: SEGMENT_ID, bookSegment: null }),
-      'Segment: Unknown segment',
-    );
+describe('canonical syllabus (Book is the only scope)', () => {
+  it('builds a create payload with the book id only', () => {
+    assert.deepEqual(buildCreateSyllabusPayload(BOOK_ID), { ok: true, data: { bookId: BOOK_ID } });
   });
 
-  it('lists the whole-book syllabus first, then segments by name', () => {
-    const sorted = sortSyllabi([syllabus('b', SEGMENT_ID, 'Unit 2'), syllabus('c', 'x', 'Unit 1'), syllabus('a', null)]);
-    assert.deepEqual(sorted.map((s) => s.id), ['a', 'c', 'b']);
+  it('rejects an id that is not a UUID with the contract message', () => {
+    assert.deepEqual(buildCreateSyllabusPayload('not-a-uuid'), { ok: false, error: 'bookId must be a valid UUID' });
   });
 
-  it('builds segment choices in curriculum order', () => {
-    const part = (id: string, order: number, name: string): BookPartItem => ({ id, bookId: BOOK_ID, name, sequenceOrder: order });
-    const seg = (id: string, partId: string, order: number, name: string): BookSegmentItem => ({
-      id,
-      bookPartId: partId,
-      name,
-      sequenceOrder: order,
-    });
-    const options = buildSegmentOptions([part('p2', 2, 'B'), part('p1', 1, 'A')], {
-      p1: [seg('s2', 'p1', 2, 'Two'), seg('s1', 'p1', 1, 'One')],
-      p2: [seg('s3', 'p2', 1, 'Three')],
-    });
-    assert.deepEqual(options, [
-      { id: 's1', label: 'Part 1: A > #1 One' },
-      { id: 's2', label: 'Part 1: A > #2 Two' },
-      { id: 's3', label: 'Part 2: B > #1 Three' },
-    ]);
-    assert.deepEqual(buildSegmentOptions([part('p1', 1, 'A')], {}), []);
+  it('never carries a part or segment id in the create payload', () => {
+    const result = buildCreateSyllabusPayload(BOOK_ID);
+    assert.equal(result.ok, true);
+    if (result.ok) assert.deepEqual(Object.keys(result.data), ['bookId']);
   });
 
-  it('detects another syllabus for the same scope, ignoring the one being edited', () => {
-    const list = [syllabus('a', null), syllabus('b', SEGMENT_ID, 'Unit 1')];
-    assert.equal(hasSameScope(list, null), true);
-    assert.equal(hasSameScope(list, SEGMENT_ID), true);
-    assert.equal(hasSameScope(list, 'other'), false);
-    assert.equal(hasSameScope(list, null, 'a'), false);
-    assert.match(DUPLICATE_SCOPE_NOTICE, /already exists/);
-  });
-
-  it('creates a whole-book payload from the empty selector value', () => {
-    assert.deepEqual(buildCreateSyllabusPayload(BOOK_ID, ''), { ok: true, data: { bookId: BOOK_ID, bookSegmentId: null } });
-    assert.deepEqual(buildCreateSyllabusPayload(BOOK_ID, SEGMENT_ID), {
-      ok: true,
-      data: { bookId: BOOK_ID, bookSegmentId: SEGMENT_ID },
-    });
-  });
-
-  it('rejects ids that are not UUIDs with the contract message', () => {
-    assert.deepEqual(buildCreateSyllabusPayload('not-a-uuid', ''), { ok: false, error: 'bookId must be a valid UUID' });
-    assert.deepEqual(buildCreateSyllabusPayload(BOOK_ID, 'nope'), {
-      ok: false,
-      error: 'bookSegmentId must be a valid UUID',
-    });
-  });
-
-  it('sends only the segment on edit, allows clearing it, and rejects an unchanged scope', () => {
-    assert.deepEqual(buildUpdateSyllabusPayload(syllabus('a', null), SEGMENT_ID), {
-      ok: true,
-      data: { bookSegmentId: SEGMENT_ID },
-    });
-    assert.deepEqual(buildUpdateSyllabusPayload(syllabus('a', SEGMENT_ID, 'Unit 1'), ''), {
-      ok: true,
-      data: { bookSegmentId: null },
-    });
-    assert.deepEqual(buildUpdateSyllabusPayload(syllabus('a', SEGMENT_ID, 'Unit 1'), SEGMENT_ID), {
-      ok: false,
-      error: NO_CHANGES_MESSAGE,
-    });
+  it("picks the book's syllabus by book id and ignores other books", () => {
+    const list = [syllabus('other', OTHER_BOOK_ID), syllabus('mine')];
+    assert.equal(pickBookSyllabus(list, BOOK_ID)?.id, 'mine');
+    assert.equal(pickBookSyllabus(list, OTHER_BOOK_ID)?.id, 'other');
+    assert.equal(pickBookSyllabus([], BOOK_ID), null);
+    assert.equal(pickBookSyllabus([syllabus('other', OTHER_BOOK_ID)], BOOK_ID), null);
   });
 });
 

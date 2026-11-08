@@ -36,15 +36,14 @@ afterEach(() => {
 
 const ID = '33333333-3333-4333-8333-333333333333';
 const BOOK_ID = '11111111-1111-4111-8111-111111111111';
-const SEGMENT_ID = '22222222-2222-4222-8222-222222222222';
 
 describe('apiClient syllabus methods', () => {
-  it('lists syllabi for a book (and optionally a segment) through GET /syllabi', async () => {
+  it('lists the syllabus of a book through GET /syllabi (book id only)', async () => {
     mockFetch(200, [{ id: ID }]);
-    const list = await apiClient.getSyllabi({ bookId: BOOK_ID, bookSegmentId: SEGMENT_ID });
+    const list = await apiClient.getSyllabi({ bookId: BOOK_ID });
     assert.deepEqual(list, [{ id: ID }]);
     assert.deepEqual(calls, [
-      { url: `/api/v1/syllabi?bookId=${BOOK_ID}&bookSegmentId=${SEGMENT_ID}`, method: 'GET', body: undefined },
+      { url: `/api/v1/syllabi?bookId=${BOOK_ID}`, method: 'GET', body: undefined },
     ]);
   });
 
@@ -72,16 +71,16 @@ describe('apiClient syllabus methods', () => {
 
   it('creates a syllabus with POST /syllabi and the shared create body', async () => {
     mockFetch(201, { id: ID });
-    await apiClient.createSyllabus({ bookId: BOOK_ID, bookSegmentId: null });
+    await apiClient.createSyllabus({ bookId: BOOK_ID });
     assert.deepEqual(calls, [
-      { url: '/api/v1/syllabi', method: 'POST', body: { bookId: BOOK_ID, bookSegmentId: null } },
+      { url: '/api/v1/syllabi', method: 'POST', body: { bookId: BOOK_ID } },
     ]);
   });
 
   it('edits a syllabus with PATCH /syllabi/:id', async () => {
     mockFetch(200, { id: ID });
-    await apiClient.updateSyllabus(ID, { bookSegmentId: SEGMENT_ID });
-    assert.deepEqual(calls, [{ url: `/api/v1/syllabi/${ID}`, method: 'PATCH', body: { bookSegmentId: SEGMENT_ID } }]);
+    await apiClient.updateSyllabus(ID, { bookId: BOOK_ID });
+    assert.deepEqual(calls, [{ url: `/api/v1/syllabi/${ID}`, method: 'PATCH', body: { bookId: BOOK_ID } }]);
   });
 
   it('adds an item with POST /syllabi/:id/items', async () => {
@@ -125,11 +124,11 @@ describe('apiClient syllabus failures reach the UI with the backend message', ()
     );
   });
 
-  it('rejects a segment from another book', async () => {
-    mockFetch(400, { code: 'INVALID_INPUT', message: `Book segment ${SEGMENT_ID} does not belong to book ${BOOK_ID}` });
+  it('surfaces a 409 when the book already has its syllabus', async () => {
+    mockFetch(409, { code: 'CONFLICT', message: `Book ${BOOK_ID} already has a syllabus. Each book has exactly one syllabus.` });
     await assert.rejects(
-      () => apiClient.createSyllabus({ bookId: BOOK_ID, bookSegmentId: SEGMENT_ID }),
-      /does not belong to book/,
+      () => apiClient.createSyllabus({ bookId: BOOK_ID }),
+      (err: Error & { statusCode?: number }) => err.statusCode === 409 && /already has a syllabus/.test(err.message),
     );
   });
 

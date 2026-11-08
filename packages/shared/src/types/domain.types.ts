@@ -1244,17 +1244,14 @@ export interface AttendanceRecordWithStudentDto extends AttendanceRecordEntity {
 
 export interface CreateSyllabusDto {
   bookId: string;
-  bookSegmentId?: string | null;
 }
 
 export interface UpdateSyllabusDto {
   bookId?: string;
-  bookSegmentId?: string | null;
 }
 
 export interface FindSyllabiFilterDto {
   bookId?: string;
-  bookSegmentId?: string;
 }
 
 export interface CreateSyllabusItemDto {
@@ -1276,7 +1273,6 @@ export interface UpdateSyllabusItemDto {
 export interface SyllabusDto {
   id: string;
   bookId: string;
-  bookSegmentId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1299,10 +1295,6 @@ export interface SyllabusDetailDto extends SyllabusDto {
     name: string;
     level: string;
   };
-  bookSegment?: {
-    id: string;
-    name: string;
-  } | null;
   items?: SyllabusItemDto[];
 }
 
