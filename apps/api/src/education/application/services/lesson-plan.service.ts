@@ -215,24 +215,12 @@ export class LessonPlanService {
         }
       } else if (data.copySyllabusItems !== false) {
         // Automatically populate from canonical syllabus items if available (default true when initialItems is omitted)
-        let syllabusQuery = tx
+        // The Book is the only scope of the canonical syllabus; the class's Segment is ignored.
+        const [canonicalSyllabus] = await tx
           .select()
           .from(syllabi)
-          .where(eq(syllabi.bookId, cls.bookId));
-
-        if (cls.bookSegmentId) {
-          syllabusQuery = tx
-            .select()
-            .from(syllabi)
-            .where(
-              and(
-                eq(syllabi.bookId, cls.bookId),
-                eq(syllabi.bookSegmentId, cls.bookSegmentId),
-              ),
-            );
-        }
-
-        const [canonicalSyllabus] = await syllabusQuery.limit(1);
+          .where(eq(syllabi.bookId, cls.bookId))
+          .limit(1);
 
         if (canonicalSyllabus) {
           const sItems = await tx
